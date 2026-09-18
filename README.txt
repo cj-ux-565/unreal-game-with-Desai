@@ -142,10 +142,6 @@ Example project path:
 5. Wait for the build to finish.
 6. Confirm that Visual Studio reports "Build succeeded".
 
-Command-line alternative:
-
-    "C:\Program Files\Epic Games\UE_5.6\Engine\Build\BatchFiles\Build.bat" SOTM1Editor Win64 Development -Project="FULL_PATH_TO_PROJECT\SOTM1.uproject" -WaitMutex -NoHotReloadFromIDE
-
 The first build can take longer because Unreal must generate project metadata,
 compile C++ modules, and prepare caches.
 
