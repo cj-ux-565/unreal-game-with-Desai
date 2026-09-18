@@ -1,0 +1,204 @@
+{
+	"asset":
+	{
+		"version": "2.0",
+		"generator": "Unreal Engine 5.6.1"
+	},
+	"scene": 0,
+	"accessors": [
+		{
+			"bufferView": 0,
+			"count": 2,
+			"type": "MAT4",
+			"componentType": 5126
+		},
+		{
+			"bufferView": 1,
+			"count": 239670,
+			"type": "SCALAR",
+			"componentType": 5123
+		},
+		{
+			"bufferView": 2,
+			"count": 58484,
+			"type": "VEC3",
+			"componentType": 5126,
+			"min": [ -0.968341112, -0.999242246, -0.639737546 ],
+			"max": [ 0.972992599, 0.993544161, 0.643294275 ]
+		},
+		{
+			"bufferView": 3,
+			"count": 58484,
+			"type": "VEC3",
+			"componentType": 5120,
+			"normalized": true
+		},
+		{
+			"bufferView": 4,
+			"count": 58484,
+			"type": "VEC4",
+			"componentType": 5120,
+			"normalized": true
+		},
+		{
+			"bufferView": 5,
+			"count": 58484,
+			"type": "VEC2",
+			"componentType": 5126
+		},
+		{
+			"bufferView": 6,
+			"count": 58484,
+			"type": "VEC4",
+			"componentType": 5121
+		},
+		{
+			"bufferView": 7,
+			"count": 58484,
+			"type": "VEC4",
+			"componentType": 5121,
+			"normalized": true
+		}
+	],
+	"buffers": [
+		{
+			"uri": "SKM_d_oll.bin",
+			"byteLength": 2584892
+		}
+	],
+	"bufferViews": [
+		{
+			"buffer": 0,
+			"byteLength": 128
+		},
+		{
+			"buffer": 0,
+			"byteLength": 479340,
+			"byteOffset": 128,
+			"target": 34963
+		},
+		{
+			"buffer": 0,
+			"byteLength": 701808,
+			"byteOffset": 479468,
+			"target": 34962
+		},
+		{
+			"buffer": 0,
+			"byteLength": 233936,
+			"byteOffset": 1181276,
+			"byteStride": 4,
+			"target": 34962
+		},
+		{
+			"buffer": 0,
+			"byteLength": 233936,
+			"byteOffset": 1415212,
+			"target": 34962
+		},
+		{
+			"buffer": 0,
+			"byteLength": 467872,
+			"byteOffset": 1649148,
+			"target": 34962
+		},
+		{
+			"buffer": 0,
+			"byteLength": 233936,
+			"byteOffset": 2117020,
+			"target": 34962
+		},
+		{
+			"buffer": 0,
+			"byteLength": 233936,
+			"byteOffset": 2350956,
+			"target": 34962
+		}
+	],
+	"images": [
+		{
+			"uri": "d_oll_texture_0.png"
+		}
+	],
+	"materials": [
+		{
+			"name": "material_0_SKM_d_oll",
+			"pbrMetallicRoughness":
+			{
+				"baseColorTexture":
+				{
+					"index": 0
+				},
+				"roughnessFactor": 0.901961029
+			}
+		}
+	],
+	"meshes": [
+		{
+			"name": "SKM_d_oll",
+			"primitives": [
+				{
+					"attributes":
+					{
+						"POSITION": 2,
+						"NORMAL": 3,
+						"TANGENT": 4,
+						"TEXCOORD_0": 5,
+						"JOINTS_0": 6,
+						"WEIGHTS_0": 7
+					},
+					"indices": 1,
+					"material": 0
+				}
+			]
+		}
+	],
+	"nodes": [
+		{
+			"skin": 0,
+			"mesh": 0,
+			"children": [ 1 ]
+		},
+		{
+			"name": "Root",
+			"translation": [ 0.00156217709, -0.506549478, 0.191835538 ],
+			"children": [ 2 ]
+		},
+		{
+			"name": "joint",
+			"translation": [ -0.0549134016, 0.670807719, 0.122104853 ]
+		}
+	],
+	"samplers": [
+		{
+			"minFilter": 9987,
+			"magFilter": 9729
+		}
+	],
+	"scenes": [
+		{
+			"nodes": [ 0 ]
+		}
+	],
+	"skins": [
+		{
+			"name": "SKM_d_oll",
+			"inverseBindMatrices": 0,
+			"skeleton": 0,
+			"joints": [ 1, 2 ]
+		}
+	],
+	"textures": [
+		{
+			"name": "d_oll_texture_0",
+			"sampler": 0,
+			"source": 0
+		}
+	],
+	"extensionsUsed": [
+		"KHR_mesh_quantization"
+	],
+	"extensionsRequired": [
+		"KHR_mesh_quantization"
+	]
+}

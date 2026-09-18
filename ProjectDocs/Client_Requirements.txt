@@ -1,0 +1,87 @@
+THE SECRETS OF THE MANSION – CHAPTER 1
+LATEST CLIENT REQUIREMENTS
+
+The developer must implement the work listed in the task list and fix existing broken systems such as the AI. The provided documents, PDFs and gameplay video must be used to understand the intended gameplay.
+
+PRIMARY TASK LIST
+
+1. Forest
+2. Isabel AI and Jump Scare
+3. Player System
+4. Coin System
+5. Skill Tree / Upgrade System
+6. Objectives
+7. HUD / UI
+8. Teddy Bear Companion
+9. Chest and Key System
+10. Demo Version
+11. Boss Fight
+12. All Cutscenes
+13. Polish
+14. Final Testing, Bug Fixes and Packaging
+
+GENERAL REQUIREMENTS
+
+- Fix bugs throughout the existing project.
+- Polish the pause menu and UI.
+- Improve Isabel’s AI so she can detect, chase and attack the player.
+- Create a cinematic jump scare inspired by Dark Deception but with an original style.
+- Implement a five-life system.
+- Implement death and game-over screens.
+- Implement objectives.
+- Implement upgrade stations.
+- Implement the coin system.
+- Implement boss-fight mechanics.
+- Connect all gameplay systems into a functional Chapter 1.
+
+STORY
+
+The player is a powerful mage whose magical abilities were stolen by Isabel, a possessed doll.
+
+The player explores the forest and recovers powers by collecting magical coins. Coins act as currency and are used to purchase stolen abilities through upgrade stations.
+
+The player completes objectives, defeats enemies, collects coins and eventually fights Isabel.
+
+TEDDY BEAR COMPANION
+
+Timmy is a magical teddy bear who:
+
+- Explains the story
+- Gives hints and objectives
+- Explains gameplay mechanics
+- Guides the player to the next objective
+- Helps unlock abilities
+
+OBJECTIVE PANEL
+
+The side-panel HUD must display:
+
+- Current objective
+- Coins collected
+- Coins required for upgrades
+- Boss progress
+- Other important tasks
+
+LATEST BOSS-FIGHT REQUIREMENT
+
+Create the complete Isabel boss fight.
+
+Requirements:
+
+- Isabel has dark powers.
+- Isabel fires Purple Burst projectiles.
+- Complete boss AI.
+- Multiple boss attacks.
+- Boss health system.
+- Victory condition.
+- Defeating Isabel opens the portal to the mansion.
+- Play an ending cutscene.
+- A spider takes Isabel, making it appear she died or was pulled away.
+- Play credits afterward.
+- Credits must be skippable.
+- Return the player to the mansion.
+- The next checkpoint is approaching Timmy.
+- The player character is BP_menuSystemCharacter.
+- Timmy unlocks the Chapter 2 ability.
+- The Chapter 2 ability is Purple Burst.
+- Purple Burst is unlocked using coins collected during Chapter 1.

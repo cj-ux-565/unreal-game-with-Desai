@@ -1,0 +1,92 @@
+[
+  {
+    "File": "SFX_TEMP_ChestOpen.wav",
+    "Source": "Procedurally generated in-project; no third-party recording or download",
+    "License": "Project-owned temporary placeholder SFX",
+    "SampleRate": 48000,
+    "Bits": 16,
+    "Channels": 1,
+    "Sha256": "81BFB350E4AB86E82133F896E50E489E5C2ED3EA50B275F5B5875DBCA1F8C71A"
+  },
+  {
+    "File": "SFX_TEMP_DemoComplete.wav",
+    "Source": "Procedurally generated in-project; no third-party recording or download",
+    "License": "Project-owned temporary placeholder SFX",
+    "SampleRate": 48000,
+    "Bits": 16,
+    "Channels": 1,
+    "Sha256": "500B27E83BD1D9A06FC199DA3F9132AD18E22E9A99FE1DD5FD9036193C7CAD38"
+  },
+  {
+    "File": "SFX_TEMP_Denied.wav",
+    "Source": "Procedurally generated in-project; no third-party recording or download",
+    "License": "Project-owned temporary placeholder SFX",
+    "SampleRate": 48000,
+    "Bits": 16,
+    "Channels": 1,
+    "Sha256": "99EB6500582C43006E302F9AE2AB6451D7958F70E497F34F6910712AB574B5B8"
+  },
+  {
+    "File": "SFX_TEMP_GateLocked.wav",
+    "Source": "Procedurally generated in-project; no third-party recording or download",
+    "License": "Project-owned temporary placeholder SFX",
+    "SampleRate": 48000,
+    "Bits": 16,
+    "Channels": 1,
+    "Sha256": "6C702A71ACDF457A9923C5DC473875F64387FA5E1751BE23D32FCD9D868E4F75"
+  },
+  {
+    "File": "SFX_TEMP_GateOpen.wav",
+    "Source": "Procedurally generated in-project; no third-party recording or download",
+    "License": "Project-owned temporary placeholder SFX",
+    "SampleRate": 48000,
+    "Bits": 16,
+    "Channels": 1,
+    "Sha256": "0941C78A31A94C39672F1BA1D22B13A3CF9A2DA672E97905F9C58EC395E2D619"
+  },
+  {
+    "File": "SFX_TEMP_KeyAcquired.wav",
+    "Source": "Procedurally generated in-project; no third-party recording or download",
+    "License": "Project-owned temporary placeholder SFX",
+    "SampleRate": 48000,
+    "Bits": 16,
+    "Channels": 1,
+    "Sha256": "F3142C1AD160781C4806B5629D735702D5E50FA8880537C89E12219AB5DC8852"
+  },
+  {
+    "File": "SFX_TEMP_KnockoutImpact.wav",
+    "Source": "Procedurally generated in-project; no third-party recording or download",
+    "License": "Project-owned temporary placeholder SFX",
+    "SampleRate": 48000,
+    "Bits": 16,
+    "Channels": 1,
+    "Sha256": "82D83AB38F24E2C35FFCC35C4598368CC3E48EFB8CD3CECD5A295BBAAFB5E6A9"
+  },
+  {
+    "File": "SFX_TEMP_Respawn.wav",
+    "Source": "Procedurally generated in-project; no third-party recording or download",
+    "License": "Project-owned temporary placeholder SFX",
+    "SampleRate": 48000,
+    "Bits": 16,
+    "Channels": 1,
+    "Sha256": "20853A1123562BFA51A2AE108719832888385938E61DDFB52A3EF6FE6B33D80E"
+  },
+  {
+    "File": "SFX_TEMP_StationOpen.wav",
+    "Source": "Procedurally generated in-project; no third-party recording or download",
+    "License": "Project-owned temporary placeholder SFX",
+    "SampleRate": 48000,
+    "Bits": 16,
+    "Channels": 1,
+    "Sha256": "778B9889780B0D1436638372D96FB4CCB8532E6D859C076B8907022D7D6E47CC"
+  },
+  {
+    "File": "SFX_TEMP_UpgradeSuccess.wav",
+    "Source": "Procedurally generated in-project; no third-party recording or download",
+    "License": "Project-owned temporary placeholder SFX",
+    "SampleRate": 48000,
+    "Bits": 16,
+    "Channels": 1,
+    "Sha256": "A4397684A9BFE956F0C4A26CB42E1B3ED2A36587C7996C16357F9FC08B3AB423"
+  }
+]

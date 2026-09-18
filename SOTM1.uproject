@@ -1,0 +1,139 @@
+﻿{
+    "Category":  "",
+    "Description":  "",
+    "EngineAssociation":  "5.6",
+    "FileVersion":  3,
+    "Modules":  [
+                    {
+                        "AdditionalDependencies":  [
+                                                       "Engine"
+                                                   ],
+                        "LoadingPhase":  "Default",
+                        "Name":  "SOTM1",
+                        "Type":  "Runtime"
+                    }
+                ],
+    "Plugins":  [
+                    {
+                        "Enabled":  true,
+                        "Name":  "CommonUI"
+                    },
+                    {
+                        "Enabled":  true,
+                        "Name":  "ElectraPlayer"
+                    },
+                    {
+                        "Enabled":  true,
+                        "Name":  "MultiUserClient"
+                    },
+                    {
+                        "Enabled":  true,
+                        "Name":  "USDMultiUser",
+                        "SupportedTargetPlatforms":  [
+                                                         "Win64",
+                                                         "Mac",
+                                                         "Linux"
+                                                     ]
+                    },
+                    {
+                        "Enabled":  true,
+                        "Name":  "MultiUserTakes"
+                    },
+                    {
+                        "Enabled":  true,
+                        "Name":  "MetaHuman",
+                        "SupportedTargetPlatforms":  [
+                                                         "Win64",
+                                                         "Linux"
+                                                     ]
+                    },
+                    {
+                        "Enabled":  true,
+                        "Name":  "MetaHumanCalibrationProcessing",
+                        "SupportedTargetPlatforms":  [
+                                                         "Win64",
+                                                         "Linux"
+                                                     ]
+                    },
+                    {
+                        "Enabled":  true,
+                        "Name":  "MetaHumanCoreTech",
+                        "SupportedTargetPlatforms":  [
+                                                         "Win64",
+                                                         "Linux"
+                                                     ]
+                    },
+                    {
+                        "Enabled":  true,
+                        "Name":  "MetaHumanCharacter"
+                    },
+                    {
+                        "Enabled":  true,
+                        "Name":  "MetaHumanLiveLink"
+                    },
+                    {
+                        "Enabled":  true,
+                        "Name":  "MetaHumanRuntime"
+                    },
+                    {
+                        "Enabled":  true,
+                        "Name":  "MetasoundExperimental"
+                    },
+                    {
+                        "Enabled":  true,
+                        "Name":  "PCGBiomeSample"
+                    },
+                    {
+                        "Enabled":  true,
+                        "Name":  "PCGBiomeCore"
+                    },
+                    {
+                        "Enabled":  true,
+                        "Name":  "PCG"
+                    },
+                    {
+                        "Enabled":  true,
+                        "Name":  "PCGExternalDataInterop"
+                    },
+                    {
+                        "Enabled":  true,
+                        "Name":  "PCGGeometryScriptInterop"
+                    },
+                    {
+                        "Enabled":  true,
+                        "Name":  "PCGInstancedActorsInterop"
+                    },
+                    {
+                        "Enabled":  true,
+                        "Name":  "PCGNiagaraInterop"
+                    },
+                    {
+                        "Enabled":  true,
+                        "Name":  "PCGWaterInterop"
+                    },
+                    {
+                        "Enabled":  true,
+                        "Name":  "JsonBlueprintUtilities"
+                    },
+                    {
+                        "Enabled":  true,
+                        "Name":  "PythonScriptPlugin"
+                    },
+                    {
+                        "Enabled":  true,
+                        "Name":  "EditorScriptingUtilities"
+                    },
+                    {
+                        "Enabled":  true,
+                        "Name":  "EnhancedInput"
+                    },
+                    {
+                        "Enabled":  true,
+                        "Name":  "UnrealMCPBridge"
+                    }
+                ],
+    "TargetPlatforms":  [
+                            "Windows",
+                            "VisionOS"
+                        ]
+}

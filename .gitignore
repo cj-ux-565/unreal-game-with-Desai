@@ -1,0 +1,94 @@
+# Visual Studio user-specific files
+.vs/
+**/.vs/
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+*.ipa
+
+# Generated project files
+*.xcodeproj
+*.xcworkspace
+*.sln
+*.suo
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.opendb
+.vsconfig
+
+# Precompiled source artwork
+SourceArt/**/*.png
+SourceArt/**/*.tga
+
+# Unreal generated binaries
+Binaries/
+**/Binaries/
+
+# Builds
+Build/*
+
+# Allow PakBlacklist files
+!Build/*/
+Build/*/**
+!Build/*/PakBlacklist*.txt
+
+# Allow icon files
+!Build/**/*.ico
+
+# Unreal generated saved files
+Saved/
+**/Saved/
+
+# Unreal generated intermediate files
+Intermediate/
+**/Intermediate/
+
+# Unreal derived data cache
+DerivedDataCache/
+**/DerivedDataCache/
+
+# Python/editor scripting caches
+__pycache__/
+**/__pycache__/
+*.py[cod]
+
+# Common local packaged-build output
+LocalBuilds/
+Packaged/
+Packages/
+Releases/
+StagedBuilds/
+
+# Editor and operating-system metadata
+.codex_mcp_session
+.idea/
+.vscode/
+Thumbs.db
+Desktop.ini

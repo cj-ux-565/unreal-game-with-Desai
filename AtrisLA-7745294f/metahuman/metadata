@@ -1,0 +1,143 @@
+{
+	"assetNamespace": "fab",
+	"listing":
+	{
+		"averageRating": 5,
+		"createdAt": "",
+		"description": "<p><span>preview </span><a target=\"_blank\" href=\"https://youtu.be/9o8E5pdb_2I?si=uF15QRszCFn0xaIc\" rel=\"noopener noreferrer nofollow\"><span>https://youtu.be/9o8E5pdb_2I?si=uF15QRszCFn0xaIc</span></a></p><p><span>MetaHuman AtrisLA is a parametric outfit asset created for MetaHuman characters.&nbsp; It is capable of resizing with your character in MetaHuman Creator in Unreal Engine.It is compatible with MetaHuman Creator</span></p><p><span>Features:&nbsp;</span></p><ul><li><p><span>Parametric garment, fits onto any body shape in MetaHumanCreator</span></p></li><li><p><span>Contains full outfit shown- Cloth, Pants, and boots, all in a single asset</span></p></li><li><p><span>Includes 1 body LOD</span></p></li><li><p><span>Includes wardrobe item editable in the MetaHuman Creator plugin</span></p><p></p></li></ul><p>Please follow the instructions to successfully import the outfit with the correct textures:</p><p></p><ol><li><p>Download the .mhpkg from this FAB listing</p></li><li><p><span>Create a folder called \"Outfits\" in your content folder, if you don't already have one.&nbsp; (All&gt;Content&gt;Outfits, or /All/Game/Outfits depending on how you are viewing it)</span></p></li><li><p><span>Create a folder in \"Outfits\" called \"AtrisLA\"</span></p></li><li><p><span>Drag OA_AtrisLA.mhpkg into your new \"AtrisLA\" folder.&nbsp; It should unpack here.</span></p></li><li><p><span>Drag WI_AtrisLA into the Outfit Clothing section in MHC and double click to apply it.</span></p></li><li><p><span>Done! </span></p></li></ol>",
+		"isAiForbidden": true,
+		"isAiGenerated": false,
+		"lastUpdatedAt": "2025-07-26T04:16:09.544307Z",
+		"listingType": "3d-model",
+		"media": "https://media.fab.com/image_previews/gallery_images/fac44056-8503-4c52-b280-d64d422666b3/2b333d6d-4018-4715-86e6-ae480e420ecb.png",
+		"publishedAt": "2025-07-26T04:15:51.655583Z",
+		"reviewCount": 1,
+		"thumbnail": "https://media.fab.com/image_previews/gallery_images/5dcd8ed8-d5da-4dc7-a096-531daafef0b9/d2684321-6fe1-4ec0-bb2a-cec2d1ae004b.png",
+		"title": "AtrisLA",
+		"uid": "7745294f-2bec-4cc4-ad5b-9773507810f8",
+		"updatedAt": "",
+		"user":
+		{
+			"coverImageUrl": "https://cdn1.epicgames.com/fab/seller/o-d778e91008465d8d622033c668523a/cover/0d34217a.png",
+			"profileImageUrl": "https://cdn1.epicgames.com/fab/seller/o-d778e91008465d8d622033c668523a/profile/1d07c520.png",
+			"sellerName": "Petr Luchko",
+			"uid": "91c993b7-31ae-4edd-9b74-f13691817403"
+		},
+		"tags": [
+			{
+				"name": "Fantasy",
+				"slug": "fantasy",
+				"uid": "5c48e966-39f9-4b98-9803-78335e942570"
+			},
+			{
+				"name": "Leather",
+				"slug": "leather",
+				"uid": "636fd4e0-73e7-4d16-b4a1-6328e43435e3"
+			},
+			{
+				"name": "Cloth",
+				"slug": "cloth",
+				"uid": "66a612e2-eef0-4dd3-9cee-06aa4b02b4d8"
+			},
+			{
+				"name": "Warrior",
+				"slug": "warrior",
+				"uid": "6bb5b38d-0c7e-4865-82f7-b8785a61f449"
+			},
+			{
+				"name": "Medieval",
+				"slug": "medieval",
+				"uid": "8869d28f-20ec-4f2e-9e92-d505e24c701d"
+			},
+			{
+				"name": "Animated",
+				"slug": "animated",
+				"uid": "8e61a209-4e02-4dd1-8e44-cc2bf9356e7a"
+			},
+			{
+				"name": "Npc",
+				"slug": "npc",
+				"uid": "90d18fed-cb99-4f6f-813e-693cbb1e774c"
+			},
+			{
+				"name": "Realistic",
+				"slug": "realistic",
+				"uid": "93b0d3f1-a96c-4d68-9d44-69a313519e32"
+			},
+			{
+				"name": "Clothes",
+				"slug": "clothes",
+				"uid": "a9a8a4b5-13d5-46fd-a391-896f2579df98"
+			},
+			{
+				"name": "Viking",
+				"slug": "viking",
+				"uid": "ad12ad05-834a-44bf-abaa-108a0855b9ab"
+			},
+			{
+				"name": "Armor",
+				"slug": "armor",
+				"uid": "c2049227-0e21-4263-b9d0-4f73d817ccd5"
+			},
+			{
+				"name": "Rigged",
+				"slug": "rigged",
+				"uid": "c5c1f70c-aabe-41d4-bd3a-e7e00ab60f0c"
+			},
+			{
+				"name": "Metahuman",
+				"slug": "metahuman",
+				"uid": "ce44d155-873e-4ae2-ac63-c38775f89a66"
+			},
+			{
+				"name": "Outfit",
+				"slug": "outfit",
+				"uid": "d5b268cb-f271-4f49-a889-bacbd21e24a2"
+			},
+			{
+				"name": "Parametric",
+				"slug": "parametric",
+				"uid": "e192a9df-16da-42ca-8f28-f0f650b1cb29"
+			}
+		],
+		"category":
+		{
+			"name": "Clothing",
+			"path": "clothing-accessories/clothing",
+			"slug": "clothing-accessories--clothing",
+			"uid": "6db64319-3bac-4ae0-b385-9d7c2c5a6268"
+		},
+		"assetFormats": [
+			{
+				"assetFormatType":
+				{
+					"name": "MetaHuman",
+					"groupName": "Other Formats",
+					"code": "metahuman",
+					"icon": "metahuman",
+					"extensions": [
+						"mhpkg"
+					]
+				}
+			}
+		],
+		"_PluginMetas":
+		{
+			"apiDataVersion": "0.0.1",
+			"entitlementUid": "a1dee310-92f5-4d7c-ad78-f6febd958c7f",
+			"cacheSize": 0,
+			"downloaded": []
+		}
+	},
+	"target": "",
+	"quality": "",
+	"format": "metahuman",
+	"fileId": "ef8e31bc-2788-49ee-ba42-b33bff33a800",
+	"platformIncluded": "",
+	"distributionPointBaseUrls": [],
+	"distributionMethod": "",
+	"entitlementUid": "a1dee310-92f5-4d7c-ad78-f6febd958c7f",
+	"invertedNormal": false,
+	"isConverted": false,
+	"isQuixel": false
+}
