@@ -1,6 +1,9 @@
 #include "AI/SOTMIsabelAIController.h"
 
+#include "BrainComponent.h"
 #include "AI/SOTMIsabelPatrolPoint.h"
+#include "Demo/SOTMDemoPhase4WorldSubsystem.h"
+#include "Objective/SOTMObjectiveSubsystem.h"
 #include "SOTMPlayerBlueprintLibrary.h"
 #include "SOTMPlayerStateSubsystem.h"
 #include "SOTMPlayerVitalComponent.h"
@@ -10,8 +13,11 @@
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
 #include "Camera/PlayerCameraManager.h"
+#include "Blueprint/UserWidget.h"
+#include "Blueprint/WidgetTree.h"
 #include "Components/AudioComponent.h"
 #include "Components/PrimitiveComponent.h"
+#include "Components/ProgressBar.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
@@ -32,6 +38,101 @@
 #include "TimerManager.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogSOTMIsabelAI, Log, All);
+
+namespace SOTMIsabelChaseFix
+{
+	// Chase progress guard state. File-local (not UPROPERTY) because this fix is
+	// confined to SOTMIsabelAIController.cpp by design. Reset on every fresh
+	// possession/encounter (see ResetChaseProgressGuard) so PIE re-runs start clean.
+	float LastProgressDistance = -1.0f; // 3D distance to player when the last request was issued (<0 = no baseline)
+	int32 StallCount = 0; // consecutive issued requests with no meaningful progress
+	bool bPartialPathActive = false; // the last issued chase request produced a partial path
+	bool bBlockerReported = false; // throttles the navigation-blocker log until progress resumes
+
+	constexpr float ProgressEpsilon = 25.0f; // minimum distance closed to count as progress (conservative vs 480 u/s chase)
+	constexpr int32 MaxStallRepaths = 4; // ~2s of zero progress before standing down (repath interval is 0.5s)
+}
+
+static void ResetChaseProgressGuard()
+{
+	SOTMIsabelChaseFix::LastProgressDistance = -1.0f;
+	SOTMIsabelChaseFix::StallCount = 0;
+	SOTMIsabelChaseFix::bPartialPathActive = false;
+	SOTMIsabelChaseFix::bBlockerReported = false;
+}
+
+// Boss health bar sync: screen-space WBP_IsabelHealth owned via the viewport.
+// Uses the existing CurrentHealth/MaxHealth only — no second health system.
+// Created+shown on Phase4 activation, updated on damage, removed on defeat;
+// it never exists before the gate opens.
+void ASOTMIsabelAIController::SyncIsabelBossHUD(bool bVisible)
+{
+	if (!bVisible)
+	{
+		if (IsabelBossHUD)
+		{
+			IsabelBossHUD->RemoveFromParent();
+			IsabelBossHUD = nullptr;
+		}
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+	if (!PC)
+	{
+		return;
+	}
+	if (!IsabelBossHUD)
+	{
+		if (UClass* HUDClass = LoadClass<UUserWidget>(nullptr, TEXT("/Game/AI/WBP_IsabelHealth.WBP_IsabelHealth_C")))
+		{
+			IsabelBossHUD = CreateWidget<UUserWidget>(PC, HUDClass);
+			if (IsabelBossHUD)
+			{
+				IsabelBossHUD->AddToViewport(100);
+			}
+		}
+	}
+	if (!IsabelBossHUD)
+	{
+		return;
+	}
+	if (!IsabelBossHUD->IsInViewport())
+	{
+		IsabelBossHUD->AddToViewport(100);
+	}
+	if (UWidgetTree* Tree = IsabelBossHUD->WidgetTree)
+	{
+		if (UProgressBar* Fill = Tree->FindWidget<UProgressBar>(TEXT("BossHealthFill")))
+		{
+			const float Max = GetMaxHealth();
+			Fill->SetPercent(Max > 0.0f ? FMath::Clamp(GetCurrentHealth() / Max, 0.0f, 1.0f) : 0.0f);
+		}
+	}
+}
+
+// Throttled navigation-blocker report: Isabel location, player location, whether the
+// path is partial, the reachable endpoint, and what level change would unblock pursuit.
+// Chase stays alive (CurrentTarget kept); it resumes automatically when the player relocates.
+static void ReportIsabelChaseBlocked(ASOTMIsabelAIController* Isabel, const AActor* PlayerTarget, float DistToPlayer, bool bPartialPath)
+{
+	if (!Isabel || SOTMIsabelChaseFix::bBlockerReported)
+	{
+		return;
+	}
+	SOTMIsabelChaseFix::bBlockerReported = true;
+	const FVector IsabelLoc = Isabel->GetPawn() ? Isabel->GetPawn()->GetActorLocation() : FVector::ZeroVector;
+	const FVector PlayerLoc = PlayerTarget ? PlayerTarget->GetActorLocation() : FVector::ZeroVector;
+	FVector ReachableEnd = FVector::ZeroVector;
+	if (const UPathFollowingComponent* PathComp = Isabel->GetPathFollowingComponent())
+	{
+		ReachableEnd = PathComp->GetPathDestination();
+	}
+	UE_LOG(LogSOTMIsabelAI, Warning,
+		TEXT("ISABEL CHASE BLOCKED: partial=%d stalls=%d isabel=%s player=%s dist=%.0f reachable_end=%s. NavMesh between these areas is disconnected; connect navigation (volumes/ramps/links) to allow physical pursuit. Chase kept alive and resumes when the player relocates."),
+		bPartialPath ? 1 : 0, SOTMIsabelChaseFix::StallCount, *IsabelLoc.ToString(), *PlayerLoc.ToString(), DistToPlayer, *ReachableEnd.ToString());
+}
 
 ASOTMIsabelAIController::ASOTMIsabelAIController()
 {
@@ -91,6 +192,26 @@ void ASOTMIsabelAIController::OnPossess(APawn* InPawn)
 {
 	Super::OnPossess(InPawn);
 
+	// Fresh possession: the chase progress guard must not inherit state from a previous run.
+	ResetChaseProgressGuard();
+
+	// Dormant until Phase4 activation: no boss HUD exists before the gate opens.
+	SyncIsabelBossHUD(false);
+
+	UE_LOG(LogSOTMIsabelAI, Display, TEXT("=== OnPossess START for %s ==="), *GetNameSafe(InPawn));
+
+	// CRITICAL: Ensure we have a valid BrainComponent (Blackboard)
+	// This is needed because BP_AI Blueprint's EventGraph calls GetBlackboard
+	// Without this, BP_AI33 will produce "Accessed None" errors
+	if (BrainComponent)
+	{
+		UE_LOG(LogSOTMIsabelAI, Display, TEXT("BrainComponent already valid"));
+	}
+	else
+	{
+		UE_LOG(LogSOTMIsabelAI, Warning, TEXT("BrainComponent is null - BP_AI Blueprint may fail"));
+	}
+
 	RefreshPerceptionSettings();
 	IsabelPerception->OnTargetPerceptionUpdated.AddUniqueDynamic(this, &ThisClass::HandleTargetPerceptionUpdated);
 	ReceiveMoveCompleted.AddUniqueDynamic(this, &ThisClass::HandleMoveCompleted);
@@ -102,12 +223,109 @@ void ASOTMIsabelAIController::OnPossess(APawn* InPawn)
 			State->OnPlayerRespawned.AddUniqueDynamic(this, &ThisClass::HandlePlayerRespawned);
 		}
 	}
+	
 	DiscoverPatrolRoute();
-	GetWorldTimerManager().SetTimer(EvaluationTimer, this, &ThisClass::EvaluateState, 0.2f, true, 0.1f);
-	EnterPatrol();
+	UE_LOG(LogSOTMIsabelAI, Display, TEXT("Patrol points found: %d"), PatrolPoints.Num());
 
-	UE_LOG(LogSOTMIsabelAI, Display, TEXT("Isabel Phase 1 initialized: pawn=%s route=%s points=%d hearing=%s"),
-		*GetNameSafe(InPawn), *PatrolRouteId.ToString(), PatrolPoints.Num(), bEnableHearing ? TEXT("enabled") : TEXT("disabled"));
+	// Register player as perception source immediately
+	RegisterPlayerAsPerceptionSource();
+	
+	// Start evaluation timer
+	GetWorldTimerManager().SetTimer(EvaluationTimer, this, &ThisClass::EvaluateState, 0.2f, true, 0.1f);
+	
+	// For boss encounter (bIsFinalIsabel): directly target the player immediately
+	if (bIsFinalIsabel)
+	{
+		APlayerController* PlayerController = GetWorld()->GetFirstPlayerController();
+		AActor* PlayerActor = PlayerController ? PlayerController->GetPawn() : nullptr;
+		
+		if (PlayerActor && IsValidLivingPlayer(PlayerActor))
+		{
+			CurrentTarget = PlayerActor;
+			bCanSeePlayer = true;
+			LastKnownPlayerLocation = PlayerActor->GetActorLocation();
+			
+			// Start chase immediately
+			SetMovementSpeed(ChaseSpeed);
+			SetState(ESOTMIsabelAIState::Chase, TEXT("boss encounter - player acquired"));
+			EvaluateChase();
+			
+			UE_LOG(LogSOTMIsabelAI, Display, TEXT("ISABEL TARGET: %s"), *PlayerActor->GetName());
+			UE_LOG(LogSOTMIsabelAI, Display, TEXT("ISABEL STATE: Chase"));
+		}
+		else
+		{
+			UE_LOG(LogSOTMIsabelAI, Warning, TEXT("BOSS ENCOUNTER: no valid player found, entering patrol"));
+			EnterPatrol();
+		}
+	}
+	else
+	{
+		// Normal Isabel: enter patrol behavior
+		EnterPatrol();
+	}
+
+	UE_LOG(LogSOTMIsabelAI, Display, TEXT("=== OnPossess END ==="));
+}
+
+void ASOTMIsabelAIController::InitializeBossEncounter(AActor* PlayerTarget)
+{
+	if (!PlayerTarget)
+	{
+		UE_LOG(LogSOTMIsabelAI, Warning, TEXT("InitializeBossEncounter: No player target"));
+		return;
+	}
+
+	UE_LOG(LogSOTMIsabelAI, Display, TEXT("=== InitializeBossEncounter START ==="));
+
+	// Fresh boss chase: reset the progress guard so earlier movement is never misread as a stall.
+	ResetChaseProgressGuard();
+	
+	// Ensure perception is set up
+	RefreshPerceptionSettings();
+	
+	// Register perception if not already done
+	if (!bPlayerStimulusRegistered)
+	{
+		RegisterPlayerAsPerceptionSource();
+	}
+	
+	// Start evaluation timer if not already running
+	if (!GetWorldTimerManager().IsTimerActive(EvaluationTimer))
+	{
+		GetWorldTimerManager().SetTimer(EvaluationTimer, this, &ThisClass::EvaluateState, 0.2f, true, 0.1f);
+	}
+	
+	// Directly target the player
+	CurrentTarget = PlayerTarget;
+	bCanSeePlayer = true;
+	LastKnownPlayerLocation = PlayerTarget->GetActorLocation();
+	
+	// Start chase immediately
+	SetMovementSpeed(ChaseSpeed);
+	SetState(ESOTMIsabelAIState::Chase, TEXT("boss encounter initialized"));
+	
+	// Force immediate movement request
+	AActor* Target = CurrentTarget.Get();
+	if (Target)
+	{
+		float DistToPlayer = FVector::Dist(GetPawn()->GetActorLocation(), Target->GetActorLocation());
+		UE_LOG(LogSOTMIsabelAI, Display, TEXT("ISABEL DISTANCE TO PLAYER: %.0f"), DistToPlayer);
+		
+		const EPathFollowingRequestResult::Type Result = MoveToActor(Target, AcceptanceRadius, true, true, true, nullptr, true);
+		UE_LOG(LogSOTMIsabelAI, Display, TEXT("ISABEL MOVE RESULT: %d"), (int32)Result);
+	}
+	
+	EvaluateChase();
+	
+	UE_LOG(LogSOTMIsabelAI, Display, TEXT("ISABEL TARGET: %s"), *PlayerTarget->GetName());
+	UE_LOG(LogSOTMIsabelAI, Display, TEXT("ISABEL STATE: Chase"));
+	UE_LOG(LogSOTMIsabelAI, Display, TEXT("ISABEL MOVEMENT STARTED"));
+
+	// Phase4 activation: reveal the screen-space boss health bar with current health.
+	SyncIsabelBossHUD(true);
+
+	UE_LOG(LogSOTMIsabelAI, Display, TEXT("=== InitializeBossEncounter END ==="));
 }
 
 void ASOTMIsabelAIController::OnUnPossess()
@@ -131,6 +349,81 @@ void ASOTMIsabelAIController::OnUnPossess()
 	Super::OnUnPossess();
 }
 
+float ASOTMIsabelAIController::TakeDamage(float DamageAmount, FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
+{
+	const float ActualDamage = Super::TakeDamage(DamageAmount, DamageEvent, EventInstigator, DamageCauser);
+	if (ActualDamage > 0.0f && CurrentHealth > 0.0f)
+	{
+		CurrentHealth = FMath::Max(0.0f, CurrentHealth - ActualDamage);
+		UE_LOG(LogSOTMIsabelAI, Display, TEXT("Isabel took damage: %.1f / %.1f"), CurrentHealth, MaxHealth);
+
+		// Immediate health bar update from the existing health value (no second system).
+		// Gated on activation so pre-gate or post-defeat damage can never reveal the HUD.
+		if (bIsFinalIsabel && CurrentHealth > 0.0f)
+		{
+			SyncIsabelBossHUD(true);
+		}
+
+		if (CurrentHealth <= 0.0f)
+		{
+			HandleIsabelDefeated();
+		}
+	}
+	return ActualDamage;
+}
+
+void ASOTMIsabelAIController::HandleIsabelDefeated()
+{
+	UE_LOG(LogSOTMIsabelAI, Display, TEXT("Isabel defeated! bIsFinalIsabel=%s"), bIsabelDeathFadeActive ? TEXT("true") : TEXT("false"));
+
+	// Defeat: remove the boss health bar as part of the existing defeat flow.
+	SyncIsabelBossHUD(false);
+
+	// Stop AI behavior
+	AbortAttack(TEXT("Isabel defeated"));
+	ClearIsabelDeathTransition(false);
+	GetWorldTimerManager().ClearAllTimersForObject(this);
+	
+	// Disable perception to stop chasing
+	if (IsabelPerception)
+	{
+		IsabelPerception->SetSenseEnabled(UAISense_Sight::StaticClass(), false);
+		IsabelPerception->SetSenseEnabled(UAISense_Hearing::StaticClass(), false);
+	}
+
+	// Notify subsystem if this is the final boss
+	if (bIsFinalIsabel)
+	{
+		NotifySubsystemOfDefeat();
+	}
+}
+
+void ASOTMIsabelAIController::NotifySubsystemOfDefeat()
+{
+	if (UWorld* World = GetWorld())
+	{
+		// First complete the objective, then trigger the demo completion
+		if (UGameInstance* GameInstance = World->GetGameInstance())
+		{
+			if (USOTMObjectiveSubsystem* Objectives = GameInstance->GetSubsystem<USOTMObjectiveSubsystem>())
+			{
+				Objectives->TryCompleteDefeatIsabel();
+			}
+		}
+		
+		// Then call the Phase 4 subsystem to show demo complete
+		if (USOTMDemoPhase4WorldSubsystem* Phase4 = World->GetSubsystem<USOTMDemoPhase4WorldSubsystem>())
+		{
+			Phase4->OnIsabelDefeated();
+			UE_LOG(LogSOTMIsabelAI, Display, TEXT("Notified Phase4 subsystem of Isabel defeat"));
+		}
+		else
+		{
+			UE_LOG(LogSOTMIsabelAI, Warning, TEXT("Could not find Phase4 subsystem to notify of Isabel defeat"));
+		}
+	}
+}
+
 void ASOTMIsabelAIController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	AbortJumpScare(TEXT("controller ending play"), true);
@@ -150,6 +443,30 @@ void ASOTMIsabelAIController::RefreshPerceptionSettings()
 	IsabelPerception->SetSenseEnabled(UAISense_Sight::StaticClass(), true);
 	IsabelPerception->SetSenseEnabled(UAISense_Hearing::StaticClass(), bEnableHearing);
 	IsabelPerception->RequestStimuliListenerUpdate();
+}
+
+void ASOTMIsabelAIController::RegisterPlayerAsPerceptionSource()
+{
+	APlayerController* PlayerController = GetWorld()->GetFirstPlayerController();
+	AActor* PlayerActor = PlayerController ? PlayerController->GetPawn() : nullptr;
+	
+	UE_LOG(LogSOTMIsabelAI, Display, TEXT("RegisterPlayerAsPerceptionSource: PlayerActor=%s"), *GetNameSafe(PlayerActor));
+	
+	if (PlayerActor)
+	{
+		bPlayerStimulusRegistered = UAIPerceptionSystem::RegisterPerceptionStimuliSource(
+			this, UAISense_Sight::StaticClass(), PlayerActor);
+		UE_LOG(LogSOTMIsabelAI, Display, TEXT("Registered sight stimulus: %s"), bPlayerStimulusRegistered ? TEXT("success") : TEXT("failed"));
+		
+		if (bEnableHearing)
+		{
+			UAIPerceptionSystem::RegisterPerceptionStimuliSource(this, UAISense_Hearing::StaticClass(), PlayerActor);
+		}
+	}
+	else
+	{
+		UE_LOG(LogSOTMIsabelAI, Warning, TEXT("No player actor found for perception registration!"));
+	}
 }
 
 void ASOTMIsabelAIController::DiscoverPatrolRoute()
@@ -178,6 +495,14 @@ void ASOTMIsabelAIController::DiscoverPatrolRoute()
 void ASOTMIsabelAIController::HandleTargetPerceptionUpdated(AActor* Actor, FAIStimulus Stimulus)
 {
 	if (!Actor || (!IsSightStimulus(Stimulus) && !IsHearingStimulus(Stimulus)))
+	{
+		return;
+	}
+	// Dormancy: the dedicated Chapter 1 boss must stay completely inactive until
+	// Phase4 gate activation. Only Phase4 sets bIsFinalIsabel (SetIsFinalBoss), so it
+	// is the activation flag: pre-gate stimuli are ignored, keeping her out of
+	// Chase/Attack/JumpScare until the gate opens. Post-gate behavior is unchanged.
+	if (!bIsFinalIsabel)
 	{
 		return;
 	}
@@ -375,6 +700,29 @@ void ASOTMIsabelAIController::MoveToCurrentPatrolPoint()
 
 void ASOTMIsabelAIController::HandleMoveCompleted(FAIRequestID RequestID, EPathFollowingResult::Type Result)
 {
+	if (CurrentState == ESOTMIsabelAIState::Chase)
+	{
+		// A finished chase move is information, not an excuse to idle: re-evaluate
+		// against the player's CURRENT location at once. Aborted moves are ignored
+		// here on purpose: they are superseded requests or attack transitions, and
+		// reacting to them would re-issue moves from inside MoveToActor (recursion).
+		// (Completion results are EPathFollowingResult: Success/Blocked/OffPath/
+		// Aborted/Invalid — Failed belongs to the request-result enum instead.)
+		// The partial/stall guards in RepathChaseIfNeeded keep this from looping.
+		if (Result != EPathFollowingResult::Aborted)
+		{
+			if (AActor* Target = CurrentTarget.Get(); Target && bCanSeePlayer && IsValidLivingPlayer(Target))
+			{
+				// Within striking range the normal EvaluateChase/attack flow owns the next step.
+				if (GetAttackDistance() > AttackRange)
+				{
+					RepathChaseIfNeeded(true);
+				}
+			}
+		}
+		return;
+	}
+
 	if (CurrentState != ESOTMIsabelAIState::Patrol || bWaitingAtPatrolPoint)
 	{
 		return;
@@ -538,7 +886,16 @@ void ASOTMIsabelAIController::EvaluateChase()
 		return;
 	}
 
+	// Set movement speed and log
 	SetMovementSpeed(ChaseSpeed);
+	
+	// Force speed in case something resets it
+	if (ACharacter* Char = Cast<ACharacter>(GetPawn()))
+	{
+		Char->GetCharacterMovement()->MaxWalkSpeed = ChaseSpeed;
+		UE_LOG(LogSOTMIsabelAI, Display, TEXT("ISABEL MOVE SPEED: %.0f (forced)"), ChaseSpeed);
+	}
+	
 	RepathChaseIfNeeded(false);
 }
 
@@ -1401,7 +1758,52 @@ void ASOTMIsabelAIController::RepathChaseIfNeeded(bool bForce)
 
 	const float Now = GetWorld()->GetTimeSeconds();
 	const FVector TargetLocation = Target->GetActorLocation();
-	if (!bForce && Now < NextChaseRepathTime && FVector::DistSquared(TargetLocation, LastChaseRequestLocation) < FMath::Square(ChaseRepathDistance))
+	float DistToPlayer = FVector::Dist(GetPawn()->GetActorLocation(), TargetLocation);
+	
+	UE_LOG(LogSOTMIsabelAI, Display, TEXT("ISABEL DISTANCE TO PLAYER: %.0f"), DistToPlayer);
+
+	// --- Chase progress accounting (stagnation guard). ---
+	// A relocating player is new information every time and never counts as a stall,
+	// so dynamic pursuit is never punished. Only a static player with no distance
+	// closed advances the stall counter.
+	const float PlayerMovedSinceRequest = FVector::Dist(TargetLocation, LastChaseRequestLocation);
+	if (SOTMIsabelChaseFix::LastProgressDistance < 0.0f)
+	{
+		// No baseline yet (fresh chase): record it without judging.
+		SOTMIsabelChaseFix::LastProgressDistance = DistToPlayer;
+		SOTMIsabelChaseFix::StallCount = 0;
+	}
+	else if (PlayerMovedSinceRequest >= ChaseRepathDistance)
+	{
+		SOTMIsabelChaseFix::StallCount = 0;
+		SOTMIsabelChaseFix::bBlockerReported = false;
+	}
+	else if (SOTMIsabelChaseFix::LastProgressDistance - DistToPlayer >= SOTMIsabelChaseFix::ProgressEpsilon)
+	{
+		// Meaningful progress toward a static player: reset the guard.
+		SOTMIsabelChaseFix::LastProgressDistance = DistToPlayer;
+		SOTMIsabelChaseFix::StallCount = 0;
+		SOTMIsabelChaseFix::bBlockerReported = false;
+	}
+	else
+	{
+		++SOTMIsabelChaseFix::StallCount;
+	}
+
+	// --- Stand-down: never hammer an identical doomed request. ---
+	// bForce bypasses only the time cadence below, never a confirmed partial/stalled
+	// block: with an unmoved player there is nothing new to request. The chase stays
+	// active with CurrentTarget kept, and resumes automatically once the player moves.
+	const bool bPlayerRelocated = PlayerMovedSinceRequest >= ChaseRepathDistance;
+	const bool bBlocked = (SOTMIsabelChaseFix::bPartialPathActive
+		|| SOTMIsabelChaseFix::StallCount >= SOTMIsabelChaseFix::MaxStallRepaths) && !bPlayerRelocated;
+	if (bBlocked)
+	{
+		ReportIsabelChaseBlocked(this, Target, DistToPlayer, SOTMIsabelChaseFix::bPartialPathActive);
+		return;
+	}
+
+	if (!bForce && Now < NextChaseRepathTime && !bPlayerRelocated)
 	{
 		return;
 	}
@@ -1409,16 +1811,54 @@ void ASOTMIsabelAIController::RepathChaseIfNeeded(bool bForce)
 	LastKnownPlayerLocation = TargetLocation;
 	LastChaseRequestLocation = TargetLocation;
 	NextChaseRepathTime = Now + ChaseRepathInterval;
+	SOTMIsabelChaseFix::LastProgressDistance = DistToPlayer;
+	
+	UE_LOG(LogSOTMIsabelAI, Display, TEXT("ISABEL MOVE REQUEST: Attempting"));
+	
 	const EPathFollowingRequestResult::Type Result = MoveToActor(Target, AcceptanceRadius, true, true, true, nullptr, true);
 	bLastPathRequestValid = Result != EPathFollowingRequestResult::Failed;
+	
+	UE_LOG(LogSOTMIsabelAI, Display, TEXT("ISABEL MOVE RESULT: %d"), (int32)Result);
+
+	// A partial path is NOT a successful chase: record it so the next evaluation
+	// stands down instead of repeating the same partial request forever.
+	SOTMIsabelChaseFix::bPartialPathActive = false;
+	if (Result == EPathFollowingRequestResult::RequestSuccessful)
+	{
+		if (const UPathFollowingComponent* PathComp = GetPathFollowingComponent())
+		{
+			if (const FNavPathSharedPtr ActivePath = PathComp->GetPath(); ActivePath.IsValid())
+			{
+				SOTMIsabelChaseFix::bPartialPathActive = ActivePath->IsPartial();
+			}
+		}
+		if (SOTMIsabelChaseFix::bPartialPathActive)
+		{
+			ReportIsabelChaseBlocked(this, Target, DistToPlayer, true);
+		}
+	}
+	
+	// Log current movement status
+	if (const ACharacter* Char = Cast<ACharacter>(GetPawn()))
+	{
+		float CurrentSpeed = Char->GetCharacterMovement()->MaxWalkSpeed;
+		UE_LOG(LogSOTMIsabelAI, Display, TEXT("ISABEL MOVE SPEED: %.0f"), CurrentSpeed);
+	}
 }
 
 void ASOTMIsabelAIController::SetMovementSpeed(float Speed) const
 {
-	if (const ACharacter* ControlledCharacter = Cast<ACharacter>(GetPawn()))
+	if (ACharacter* ControlledCharacter = Cast<ACharacter>(GetPawn()))
 	{
-		ControlledCharacter->GetCharacterMovement()->MaxWalkSpeed = Speed;
-		ControlledCharacter->GetCharacterMovement()->MinAnalogWalkSpeed = 0.0f;
+		UCharacterMovementComponent* Movement = ControlledCharacter->GetCharacterMovement();
+		if (Movement)
+		{
+			Movement->MaxWalkSpeed = Speed;
+			Movement->MinAnalogWalkSpeed = 0.0f;
+			// Ensure movement is enabled
+			Movement->SetMovementMode(MOVE_Walking);
+			UE_LOG(LogSOTMIsabelAI, Display, TEXT("ISABEL MOVE SPEED: %.0f (SetMovementSpeed)"), Speed);
+		}
 	}
 }
 

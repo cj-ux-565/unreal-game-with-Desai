@@ -55,8 +55,9 @@ public:
 	static const FName FindChestId;
 	static const FName ObtainGateKeyId;
 	static const FName ReachGateId;
+	static const FName DefeatIsabelId;
 	static const FName DemoCompleteId;
-	static constexpr int32 TotalForestCoins = 330;
+	static constexpr int32 TotalForestCoins = 10;
 
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
@@ -81,6 +82,9 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category="SOTM|Objective|Phase 4")
 	ESOTMPhase4ActionResult TryCompletePhase4Demo();
+
+	UFUNCTION(BlueprintCallable, Category="SOTM|Objective|Phase 4")
+	ESOTMPhase4ActionResult TryCompleteDefeatIsabel();
 
 	UFUNCTION(BlueprintPure, Category="SOTM|Objective|Phase 4")
 	FText GetGateRequirementFeedback() const;
@@ -129,6 +133,9 @@ private:
 
 	UPROPERTY(Transient)
 	FSOTMObjectiveData ReachGate;
+
+	UPROPERTY(Transient)
+	FSOTMObjectiveData DefeatIsabel;
 
 	UPROPERTY(Transient)
 	FSOTMObjectiveData DemoComplete;

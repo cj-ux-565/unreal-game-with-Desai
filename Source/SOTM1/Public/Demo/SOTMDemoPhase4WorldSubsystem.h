@@ -30,6 +30,10 @@ public:
 	UPROPERTY(BlueprintAssignable, Category="SOTM|Demo|Phase 4")
 	FSOTMPhase4NotificationSignature OnNotification;
 
+	// Called when gate is opened - triggers Isabel encounter
+	UPROPERTY(BlueprintAssignable, Category="SOTM|Demo|Phase 4")
+	FSOTMPhase4GateOpenedSignature OnGateOpenedForIsabelEncounter;
+
 	UFUNCTION(BlueprintPure, Category="SOTM|Demo|Phase 4")
 	bool IsPlayerNearChest() const { return bNearChest; }
 
@@ -44,6 +48,7 @@ public:
 
 private:
 	void InitializePhase4();
+	void RetryDiscoveryIfNeeded();
 	void FindProductionArtAndCreateAnchors();
 	void BindProductionInput();
 	void UnbindProductionInput();
@@ -58,6 +63,7 @@ private:
 	void BeginGatePresentation(bool bRestoreImmediately);
 	void UpdateGatePresentation();
 	void FinishGatePresentation();
+	void ActivateIsabelEncounter();
 	void ShowDemoComplete();
 	UFUNCTION()
 	void HideDemoComplete();
@@ -67,6 +73,14 @@ private:
 
 	UFUNCTION()
 	void HandlePlayerRespawned(AActor* PlayerActor);
+
+	UFUNCTION()
+	void RetryDiscoveryTimerElapsed();
+
+public:
+	// Called by external system when Isabel is defeated
+	UFUNCTION(BlueprintCallable, Category="SOTM|Demo|Phase 4")
+	void OnIsabelDefeated();
 
 	UPROPERTY(Transient)
 	TObjectPtr<USOTMPlayerStateSubsystem> PlayerState;
@@ -106,6 +120,7 @@ private:
 	FTransform ChestClosedTransform = FTransform::Identity;
 	FTransform GateClosedTransform = FTransform::Identity;
 	FTimerHandle InitializeTimer;
+	FTimerHandle RetryDiscoveryTimer;
 	FTimerHandle ChestAnimationTimer;
 	FTimerHandle GateAnimationTimer;
 	FTimerHandle DemoCompleteTimer;

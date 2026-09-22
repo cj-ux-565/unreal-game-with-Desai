@@ -1,5 +1,7 @@
 #include "Demo/SOTMDemoPhase4WorldSubsystem.h"
 
+#include "AI/SOTMIsabelAIController.h"
+#include "BrainComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "AI/SOTMCousinCharacter.h"
 #include "Demo/SOTMDemoPhase2WorldSubsystem.h"
@@ -104,6 +106,10 @@ void USOTMDemoPhase4WorldSubsystem::InitializePhase4()
 	}
 	FindProductionArtAndCreateAnchors();
 	BindProductionInput();
+	
+	// If actors not found, schedule retry
+	RetryDiscoveryIfNeeded();
+	
 	if (PlayerState->IsPhase4ChestOpened())
 	{
 		BeginChestPresentation(true);
@@ -135,6 +141,32 @@ void USOTMDemoPhase4WorldSubsystem::InitializePhase4()
 		RunDevelopmentDataAcceptance();
 	}
 #endif
+}
+
+void USOTMDemoPhase4WorldSubsystem::RetryDiscoveryIfNeeded()
+{
+	// Only retry if actors were not found and we haven't already initialized anchors
+	if ((!ChestArt || !GateArt) && (!ChestAnchor && !GateAnchor))
+	{
+		UWorld* World = GetWorld();
+		if (World && !World->GetTimerManager().IsTimerActive(RetryDiscoveryTimer))
+		{
+			UE_LOG(LogSOTMPhase4, Display, TEXT("Phase 4: scheduling retry discovery in 1.0s"));
+			World->GetTimerManager().SetTimer(RetryDiscoveryTimer, this, &USOTMDemoPhase4WorldSubsystem::RetryDiscoveryTimerElapsed, 1.0f, false);
+		}
+	}
+}
+
+void USOTMDemoPhase4WorldSubsystem::RetryDiscoveryTimerElapsed()
+{
+	UE_LOG(LogSOTMPhase4, Display, TEXT("Phase 4: retrying discovery"));
+	FindProductionArtAndCreateAnchors();
+	
+	// If still not found, try one more time after another second
+	if (!ChestArt || !GateArt)
+	{
+		RetryDiscoveryIfNeeded();
+	}
 }
 
 void USOTMDemoPhase4WorldSubsystem::FindProductionArtAndCreateAnchors()
@@ -500,10 +532,12 @@ void USOTMDemoPhase4WorldSubsystem::UpdateGatePresentation()
 	{
 		GetWorld()->GetTimerManager().ClearTimer(GateAnimationTimer);
 		bGateAnimationRunning = false;
+		// Gate opened - trigger Isabel encounter instead of immediate demo complete
 		if (!PlayerState || !PlayerState->IsPhase4DemoCompleted())
 		{
-			GetWorld()->GetTimerManager().SetTimer(
-				DemoCompleteTimer, this, &ThisClass::FinishGatePresentation, 0.8f, false);
+			OnGateOpenedForIsabelEncounter.Broadcast();
+			ActivateIsabelEncounter();
+			UE_LOG(LogSOTMPhase4, Display, TEXT("Phase 4: Gate opened - Isabel encounter triggered"));
 		}
 	}
 }
@@ -520,6 +554,160 @@ void USOTMDemoPhase4WorldSubsystem::FinishGatePresentation()
 		}
 	}
 	ShowDemoComplete();
+}
+
+void USOTMDemoPhase4WorldSubsystem::ActivateIsabelEncounter()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		UE_LOG(LogSOTMPhase4, Error, TEXT("ActivateIsabelEncounter: No World"));
+		return;
+	}
+
+	UE_LOG(LogSOTMPhase4, Display, TEXT("=== ActivateIsabelEncounter START ==="));
+
+	// Dedicated Chapter 1 boss: the BP_IsabelAI instance (label "IsabelBoss").
+	// The old generic BP_AI33 must NOT be activated anymore, so there is intentionally
+	// no fallback to BP_AI33 or to any other BP_AI instance.
+	ACharacter* IsabelActor = nullptr;
+	FString IsabelActorName;
+
+	for (TActorIterator<ACharacter> It(World); It; ++It)
+	{
+		const FString ActorLabel = It->GetActorLabel(false);
+		const FString ClassName = It->GetClass()->GetName();
+
+		if (ActorLabel == TEXT("IsabelBoss") || ClassName.Contains(TEXT("BP_IsabelAI")))
+		{
+			IsabelActor = *It;
+			IsabelActorName = It->GetName();
+			UE_LOG(LogSOTMPhase4, Display, TEXT("Dedicated Isabel boss found: Name=%s Label=%s Class=%s"),
+				*IsabelActorName, *ActorLabel, *ClassName);
+			break;
+		}
+	}
+
+	if (!IsabelActor)
+	{
+		UE_LOG(LogSOTMPhase4, Error, TEXT("FAILED to find the dedicated BP_IsabelAI boss actor (label IsabelBoss)!"));
+		UE_LOG(LogSOTMPhase4, Display, TEXT("=== ActivateIsabelEncounter END ==="));
+		return;
+	}
+
+	UE_LOG(LogSOTMPhase4, Display, TEXT("ISABEL BOSS ACTOR FOUND: %s"), *IsabelActorName);
+	UE_LOG(LogSOTMPhase4, Display, TEXT("ISABEL BOSS ACTOR CLASS: %s"), *IsabelActor->GetClass()->GetName());
+
+	// Get the existing controller (if any)
+	AAIController* ExistingController = Cast<AAIController>(IsabelActor->GetController());
+	
+	// Check if it already has SOTMIsabelAIController - this prevents duplicate possession
+	ASOTMIsabelAIController* IsabelAI = ExistingController ? Cast<ASOTMIsabelAIController>(ExistingController) : nullptr;
+	
+	if (IsabelAI && IsabelAI == ExistingController)
+	{
+		// Already properly possessed by SOTMIsabelAIController
+		UE_LOG(LogSOTMPhase4, Display, TEXT("Isabel already has SOTMIsabelAIController - initializing boss behavior"));
+		
+		// CRITICAL FIX: To fully disable BP_AI Blueprint's EventGraph, we need to:
+		// 1. Add IsabelBoss tag
+		// 2. IMPORTANT: The BP_AI Blueprint likely checks GetController() for BB in EventGraph
+		//    When we replaced the controller, the Blueprint should already not have BB access
+		//    But if it's still running, we need to ensure it can detect the tag EARLY
+		IsabelActor->Tags.Add(TEXT("IsabelBoss"));
+		UE_LOG(LogSOTMPhase4, Display, TEXT("ISABEL LEGACY BLACKBOARD DISABLED: Added IsabelBoss tag to dedicated boss"));
+		
+		// Additional safeguard: Clear any cached controller reference in the pawn's components
+		// Force the Blueprint to re-check its controller
+		IsabelActor->ForceNetUpdate();
+		
+		// Set boss flag
+		IsabelAI->SetIsFinalBoss(true);
+		
+		// Explicitly initialize boss behavior: target player and enter chase
+		APlayerController* PlayerController = World->GetFirstPlayerController();
+		AActor* PlayerActor = PlayerController ? PlayerController->GetPawn() : nullptr;
+		
+		if (PlayerActor)
+		{
+			// Directly call the boss initialization on the controller
+			IsabelAI->InitializeBossEncounter(PlayerActor);
+			UE_LOG(LogSOTMPhase4, Display, TEXT("ISABEL BOSS INITIALIZED"));
+		}
+		else
+		{
+			UE_LOG(LogSOTMPhase4, Warning, TEXT("No player found for boss encounter"));
+		}
+		
+		// Start AI brain if not already running
+		if (UBrainComponent* Brain = IsabelAI->GetBrainComponent())
+		{
+			if (!Brain->IsRunning())
+			{
+				Brain->StartLogic();
+				UE_LOG(LogSOTMPhase4, Display, TEXT("ISABEL MOVEMENT STARTED"));
+			}
+		}
+		
+		// Add tag to mark this as Isabel boss
+		// The Isabel blueprint's EventGraph needs to check this tag and skip execution
+		IsabelActor->Tags.Add(TEXT("IsabelBoss"));
+		UE_LOG(LogSOTMPhase4, Display, TEXT("Added IsabelBoss tag - Isabel blueprint must check this to skip EventGraph"));
+	}
+	else
+	{
+		// Need to set up new controller
+		if (ExistingController)
+		{
+			// Only unpossess if it's NOT already SOTMIsabelAIController
+			ExistingController->UnPossess();
+			ExistingController->Destroy();
+			UE_LOG(LogSOTMPhase4, Display, TEXT("Removed old controller"));
+		}
+		
+		// Spawn new SOTMIsabelAIController
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+		SpawnParams.Name = TEXT("Isabel_AI_Controller");
+		
+		IsabelAI = World->SpawnActor<ASOTMIsabelAIController>(
+			ASOTMIsabelAIController::StaticClass(), 
+			IsabelActor->GetActorLocation(), 
+			IsabelActor->GetActorRotation(), 
+			SpawnParams);
+		
+		if (!IsabelAI)
+		{
+			UE_LOG(LogSOTMPhase4, Error, TEXT("FAILED to spawn SOTMIsabelAIController!"));
+			UE_LOG(LogSOTMPhase4, Display, TEXT("=== ActivateIsabelEncounter END ==="));
+			return;
+		}
+		
+		UE_LOG(LogSOTMPhase4, Display, TEXT("Spawned SOTMIsabelAIController"));
+
+		// Set as final boss BEFORE possession
+		IsabelAI->SetIsFinalBoss(true);
+		
+		// Now possess - OnPossess will handle player targeting
+		IsabelAI->Possess(IsabelActor);
+		
+		// Add tag to mark this as Isabel boss
+		IsabelActor->Tags.Add(TEXT("IsabelBoss"));
+		UE_LOG(LogSOTMPhase4, Display, TEXT("Added IsabelBoss tag - Isabel blueprint must check this to skip EventGraph"));
+		
+		UE_LOG(LogSOTMPhase4, Display, TEXT("ISABEL BOSS INITIALIZED"));
+	}
+	
+	UE_LOG(LogSOTMPhase4, Display, TEXT("ISABEL BOSS CONTROLLER: SOTMIsabelAIController"));
+
+	// Start the AI logic
+	if (UBrainComponent* Brain = IsabelAI->GetBrainComponent())
+	{
+		Brain->StartLogic();
+	}
+
+	UE_LOG(LogSOTMPhase4, Display, TEXT("Isabel encounter activated successfully!"));
+	UE_LOG(LogSOTMPhase4, Display, TEXT("=== ActivateIsabelEncounter END ==="));
 }
 
 void USOTMDemoPhase4WorldSubsystem::ShowDemoComplete()
@@ -577,6 +765,21 @@ void USOTMDemoPhase4WorldSubsystem::HandlePlayerRespawned(AActor* PlayerActor)
 {
 	(void)PlayerActor;
 	RefreshPrompt();
+}
+
+void USOTMDemoPhase4WorldSubsystem::OnIsabelDefeated()
+{
+	UE_LOG(LogSOTMPhase4, Display, TEXT("Phase 4: Isabel defeated - completing demo"));
+	if (Objectives)
+	{
+		const ESOTMPhase4ActionResult Result = Objectives->TryCompletePhase4Demo();
+		if (Result != ESOTMPhase4ActionResult::Success && Result != ESOTMPhase4ActionResult::AlreadyCompleted)
+		{
+			UE_LOG(LogSOTMPhase4, Error, TEXT("Demo completion persistence failed result=%d"), static_cast<int32>(Result));
+			return;
+		}
+	}
+	ShowDemoComplete();
 }
 
 #if !UE_BUILD_SHIPPING

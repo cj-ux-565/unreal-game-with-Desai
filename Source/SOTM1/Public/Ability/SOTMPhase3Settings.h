@@ -12,7 +12,7 @@ class SOTM1_API USOTMPhase3Settings final : public UDeveloperSettings
 
 public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category="Purchase", meta=(ClampMin="1"))
-	int32 SpeedBoostUnlockCost = 250;
+	int32 SpeedBoostUnlockCost = 5;
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category="Level 1", meta=(ClampMin="1.0", ClampMax="2.0"))
 	float SpeedBoostMultiplier = 1.40f;

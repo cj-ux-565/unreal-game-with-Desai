@@ -31,3 +31,6 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
 	FSOTMPhase4NotificationSignature,
 	FText, Title,
 	FText, Detail);
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(
+	FSOTMPhase4GateOpenedSignature);

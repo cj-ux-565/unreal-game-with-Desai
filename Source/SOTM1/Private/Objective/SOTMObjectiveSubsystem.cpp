@@ -10,6 +10,7 @@ const FName USOTMObjectiveSubsystem::UnlockSpeedBoostId(TEXT("UnlockSpeedBoost")
 const FName USOTMObjectiveSubsystem::FindChestId(TEXT("FindChest"));
 const FName USOTMObjectiveSubsystem::ObtainGateKeyId(TEXT("ObtainGateKey"));
 const FName USOTMObjectiveSubsystem::ReachGateId(TEXT("ReachGate"));
+const FName USOTMObjectiveSubsystem::DefeatIsabelId(TEXT("DefeatIsabel"));
 const FName USOTMObjectiveSubsystem::DemoCompleteId(TEXT("DemoComplete"));
 
 void USOTMObjectiveSubsystem::Initialize(FSubsystemCollectionBase& Collection)
@@ -37,6 +38,8 @@ void USOTMObjectiveSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 		NSLOCTEXT("SOTM", "ObtainGateKey", "Obtain Gate Key"));
 	InitializeBinaryObjective(ReachGate, ReachGateId,
 		NSLOCTEXT("SOTM", "ReachGate", "Reach the Gate"));
+	InitializeBinaryObjective(DefeatIsabel, DefeatIsabelId,
+		NSLOCTEXT("SOTM", "DefeatIsabel", "Defeat Isabel"));
 	InitializeBinaryObjective(DemoComplete, DemoCompleteId,
 		NSLOCTEXT("SOTM", "DemoCompleteObjective", "Demo Complete"));
 
@@ -112,7 +115,7 @@ void USOTMObjectiveSubsystem::HandlePhase4ProgressChanged(
 
 TArray<FSOTMObjectiveData> USOTMObjectiveSubsystem::GetChapterOneObjectives() const
 {
-	return { CollectAllForestCoins, UnlockSpeedBoost, FindChest, ObtainGateKey, ReachGate, DemoComplete };
+	return { CollectAllForestCoins, UnlockSpeedBoost, FindChest, ObtainGateKey, ReachGate, DefeatIsabel, DemoComplete };
 }
 
 FSOTMObjectiveData USOTMObjectiveSubsystem::GetActiveChapterOneObjective() const
@@ -200,6 +203,19 @@ ESOTMPhase4ActionResult USOTMObjectiveSubsystem::TryCompletePhase4Demo()
 		: ESOTMPhase4ActionResult::SaveFailed;
 }
 
+ESOTMPhase4ActionResult USOTMObjectiveSubsystem::TryCompleteDefeatIsabel()
+{
+	// Mark Defeat Isabel objective as complete
+	DefeatIsabel.CurrentProgress = 1;
+	DefeatIsabel.State = ESOTMObjectiveState::Completed;
+	OnObjectiveChanged.Broadcast(DefeatIsabel);
+	
+	UE_LOG(LogSOTMObjective, Display, TEXT("Objective %s completed"), *DefeatIsabelId.ToString());
+	
+	// Now complete the demo
+	return TryCompletePhase4Demo();
+}
+
 FText USOTMObjectiveSubsystem::GetGateRequirementFeedback() const
 {
 	const bool bCoins = CollectAllForestCoins.State == ESOTMObjectiveState::Completed;
@@ -247,6 +263,7 @@ void USOTMObjectiveSubsystem::RefreshPhase4Objectives(const bool bForceBroadcast
 	const FSOTMObjectiveData PreviousChest = FindChest;
 	const FSOTMObjectiveData PreviousKey = ObtainGateKey;
 	const FSOTMObjectiveData PreviousGate = ReachGate;
+	const FSOTMObjectiveData PreviousDefeat = DefeatIsabel;
 	const FSOTMObjectiveData PreviousDemo = DemoComplete;
 
 	const bool bCoinsComplete = CollectAllForestCoins.State == ESOTMObjectiveState::Completed;
@@ -268,14 +285,18 @@ void USOTMObjectiveSubsystem::RefreshPhase4Objectives(const bool bForceBroadcast
 	ReachGate.CurrentProgress = bGate ? 1 : 0;
 	ReachGate.State = bGate ? ESOTMObjectiveState::Completed
 		: (bForestObjectiveActive && bCoinsComplete && bBoost && bKey ? ESOTMObjectiveState::Active : ESOTMObjectiveState::Locked);
+	DefeatIsabel.CurrentProgress = bDemo ? 1 : 0;
+	DefeatIsabel.State = bDemo ? ESOTMObjectiveState::Completed
+		: (bGate ? ESOTMObjectiveState::Active : ESOTMObjectiveState::Locked);
 	DemoComplete.CurrentProgress = bDemo ? 1 : 0;
 	DemoComplete.State = bDemo ? ESOTMObjectiveState::Completed
-		: (bGate ? ESOTMObjectiveState::Active : ESOTMObjectiveState::Locked);
+		: (bDemo ? ESOTMObjectiveState::Active : ESOTMObjectiveState::Locked);
 
 	BroadcastIfChanged(PreviousUnlock, UnlockSpeedBoost, bForceBroadcast);
 	BroadcastIfChanged(PreviousChest, FindChest, bForceBroadcast);
 	BroadcastIfChanged(PreviousKey, ObtainGateKey, bForceBroadcast);
 	BroadcastIfChanged(PreviousGate, ReachGate, bForceBroadcast);
+	BroadcastIfChanged(PreviousDefeat, DefeatIsabel, bForceBroadcast);
 	BroadcastIfChanged(PreviousDemo, DemoComplete, bForceBroadcast);
 }
 

@@ -15,6 +15,7 @@ class UAnimMontage;
 class UAudioComponent;
 class UCanvas;
 class USoundBase;
+class UUserWidget;
 
 enum class ESOTMJumpScareCinematicPhase : uint8
 {
@@ -33,6 +34,45 @@ class SOTM1_API ASOTMIsabelAIController : public AAIController
 
 public:
 	ASOTMIsabelAIController();
+
+	// Health and damage handling
+	float TakeDamage(float DamageAmount, FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser) override;
+
+	UFUNCTION(BlueprintCallable, Category="SOTM|Isabel|Health")
+	void SetIsFinalBoss(bool bIsFinal) { bIsFinalIsabel = bIsFinal; }
+
+	UFUNCTION(BlueprintPure, Category="SOTM|Isabel|Health")
+	bool GetIsFinalBoss() const { return bIsFinalIsabel; }
+
+	UFUNCTION(BlueprintCallable, Category="SOTM|Isabel|Health")
+	float GetCurrentHealth() const { return CurrentHealth; }
+
+	UFUNCTION(BlueprintCallable, Category="SOTM|Isabel|Health")
+	float GetMaxHealth() const { return MaxHealth; }
+
+	UFUNCTION(BlueprintCallable, Category="SOTM|Isabel|Health")
+	void SetMaxHealth(float NewMaxHealth) { MaxHealth = NewMaxHealth; CurrentHealth = MaxHealth; }
+
+	// Called by Phase4 subsystem to initialize boss encounter behavior
+	UFUNCTION(BlueprintCallable, Category="SOTM|Isabel|Boss")
+	void InitializeBossEncounter(AActor* PlayerTarget);
+
+	// Called by BP_AI Blueprint EventGraph to check if legacy Blackboard should be used
+	// Returns true if this is the final Isabel boss and should NOT use legacy behavior
+	UFUNCTION(BlueprintPure, Category="SOTM|Isabel|Boss")
+	bool ShouldDisableLegacyBehavior() const { return bIsFinalIsabel; }
+
+	// Alternative check - BP_AI can call this to see if it should skip its EventGraph
+	UFUNCTION(BlueprintPure, Category="SOTM|Isabel|Boss")
+	bool IsIsabelBoss() const { return bIsFinalIsabel; }
+
+protected:
+	UFUNCTION(BlueprintCallable, Category="SOTM|Isabel|Health")
+	void HandleIsabelDefeated();
+
+private:
+	void NotifySubsystemOfDefeat();
+	void SyncIsabelBossHUD(bool bVisible);
 	virtual void OnPossess(APawn* InPawn) override;
 	virtual void OnUnPossess() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -61,6 +101,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category="SOTM|Isabel|Debug", meta=(DevelopmentOnly))
 	bool ForceDevelopmentCatchForCinematicTest();
 
+	public:
 	/** Called only by the dedicated Phase 2 animation notify. */
 	void HandleAttackImpactNotify();
 	/** Called only by the dedicated Phase 3 jump-scare impact notify. */
@@ -126,11 +167,23 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="SOTM|Isabel|Jump Scare") TSoftObjectPtr<USoundBase> JumpScareSound;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="SOTM|Isabel|Debug") bool bDrawDevelopmentDebug = true;
 
+	// Health properties - instance editable for the final boss
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="SOTM|Isabel|Health", meta=(ClampMin="1.0"))
+	float MaxHealth = 100.0f;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="SOTM|Isabel|Health")
+	float CurrentHealth = 100.0f;
+
+	// Whether this is the final Isabel boss (triggers Chapter 1 completion)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="SOTM|Isabel|Health")
+	bool bIsFinalIsabel = false;
+
 private:
 	UFUNCTION() void HandleTargetPerceptionUpdated(AActor* Actor, FAIStimulus Stimulus);
 	UFUNCTION() void HandleMoveCompleted(FAIRequestID RequestID, EPathFollowingResult::Type Result);
 
 	void RefreshPerceptionSettings();
+	void RegisterPlayerAsPerceptionSource();
 	void DiscoverPatrolRoute();
 	void EvaluateState();
 	void SetState(ESOTMIsabelAIState NewState, const TCHAR* Reason);
@@ -225,4 +278,9 @@ private:
 	FTimerHandle JumpScareCameraReleaseTimer;
 	FTimerHandle JumpScareCameraTrackingTimer;
 	FTimerHandle IsabelDeathFadeTimer;
+
+	// Screen-space boss health bar (WBP_IsabelHealth), owned via the viewport.
+	// Created on Phase4 activation, removed on defeat; never exists pre-gate.
+	UPROPERTY(Transient)
+	TObjectPtr<UUserWidget> IsabelBossHUD;
 };
