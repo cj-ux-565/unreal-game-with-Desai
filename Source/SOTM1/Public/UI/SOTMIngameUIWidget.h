@@ -8,14 +8,42 @@
 #include "SOTMIngameUIWidget.generated.h"
 
 class UBorder;
+class UImage;
+class UOverlay;
 class UProgressBar;
 class UTextBlock;
+class UTexture2D;
 class UVerticalBox;
+class UWidget;
 class USOTMDemoPhase2WorldSubsystem;
 class USOTMDemoPhase3WorldSubsystem;
 class USOTMDemoPhase4WorldSubsystem;
 class USOTMObjectiveSubsystem;
 class USOTMPlayerStateSubsystem;
+
+/**
+ * One objective list row: bone text plus a thin horizontal blood-red
+ * strike-through shown only for completed objectives, plus an optional small
+ * grungy BloodLines Cross mark as secondary decoration. No gameplay state here.
+ */
+USTRUCT()
+struct FSOTMObjectiveRow
+{
+	GENERATED_BODY()
+
+	UPROPERTY(Transient)
+	TObjectPtr<UOverlay> Root = nullptr;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UTextBlock> Text = nullptr;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UWidget> Slash = nullptr;
+
+	/** Small grungy BloodLines completion mark (Cross texture), visible only when completed. */
+	UPROPERTY(Transient)
+	TObjectPtr<UWidget> CompletionMark = nullptr;
+};
 
 /**
  * Event-driven presentation adapter for the single production gameplay HUD.
@@ -148,10 +176,16 @@ private:
 	TObjectPtr<UTextBlock> CurrentObjectiveText;
 
 	UPROPERTY(Transient)
+	TObjectPtr<UWidget> CurrentObjectiveSlash;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UWidget> CurrentObjectiveMark;
+
+	UPROPERTY(Transient)
 	TObjectPtr<UTextBlock> ObjectiveProgressText;
 
 	UPROPERTY(Transient)
-	TObjectPtr<UTextBlock> FutureObjectivesText;
+	TObjectPtr<UVerticalBox> FutureObjectivesContainer;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UTextBlock> CoinCounterText;
@@ -166,10 +200,17 @@ private:
 	TObjectPtr<UTextBlock> LivesText;
 
 	UPROPERTY(Transient)
+	TObjectPtr<UBorder> LivesPanel;
+
+	UPROPERTY(Transient)
 	TObjectPtr<UBorder> SpeedBoostPanel;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UTextBlock> SpeedBoostText;
+
+	/** Thin supernatural accent strip above the Speed Boost text; colors per state. */
+	UPROPERTY(Transient)
+	TObjectPtr<UBorder> SpeedAccentStrip;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UProgressBar> SpeedBoostProgressBar;
@@ -223,7 +264,7 @@ private:
 	TObjectPtr<UVerticalBox> MissionTasksContainer;
 
 	UPROPERTY(Transient)
-	TMap<FName, TObjectPtr<UTextBlock>> MissionTaskRows;
+	TMap<FName, FSOTMObjectiveRow> MissionTaskRows;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UBorder> BossPanel;
@@ -233,6 +274,37 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UProgressBar> BossProgressBar;
+
+	/** Cached BloodLines textures (null-safe: HUD falls back to solid gothic colors). */
+	UPROPERTY(Transient)
+	TObjectPtr<UTexture2D> BloodObjectiveFrameTex = nullptr;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UTexture2D> BloodNoticeFrameTex = nullptr;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UTexture2D> BloodOutlineRedTex = nullptr;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UTexture2D> BloodOutlineGreyTex = nullptr;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UTexture2D> BloodInputRedTex = nullptr;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UTexture2D> BloodSlashCrossTex = nullptr;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UTexture2D> BloodBossBackTex = nullptr;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UTexture2D> BloodBossFillTex = nullptr;
+
+	UTexture2D* LoadBloodLinesTexture(const TCHAR* ObjectPath);
+	FSlateBrush MakeBloodFrameBrush(UTexture2D* Tex, const FLinearColor& Tint, float CornerMargin) const;
+	void ApplyBloodPanelBrush(UBorder* Panel, UTexture2D* Tex, const FLinearColor& FallbackColor, float CornerMargin);
+	void CacheBloodLinesTextures();
+	void StyleBossProgressBarWithBloodLines();
 
 	UPROPERTY(Transient)
 	TObjectPtr<USOTMPlayerStateSubsystem> BoundPlayerState;

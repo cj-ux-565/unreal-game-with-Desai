@@ -8,7 +8,8 @@
 
 ASOTMCoinPickup::ASOTMCoinPickup()
 {
-	PrimaryActorTick.bCanEverTick = false;
+	// Spin-only tick; collection still runs on overlap callbacks, never on Tick.
+	PrimaryActorTick.bCanEverTick = true;
 }
 
 void ASOTMCoinPickup::BeginPlay()
@@ -38,6 +39,19 @@ void ASOTMCoinPickup::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	}
 	BoundStateSubsystem = nullptr;
 	Super::EndPlay(EndPlayReason);
+}
+
+void ASOTMCoinPickup::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+
+	// Pure presentation: yaw spin around the actor origin. No gameplay state is
+	// touched here; collection stays overlap-driven and hidden pickups stay hidden
+	// because DisableCollectedPickup hides the whole actor.
+	if (!bCollectionInProgress && SpinDegreesPerSecond > 0.0f)
+	{
+		AddActorLocalRotation(FRotator(0.0f, SpinDegreesPerSecond * DeltaSeconds, 0.0f));
+	}
 }
 
 void ASOTMCoinPickup::NotifyActorBeginOverlap(AActor* OtherActor)

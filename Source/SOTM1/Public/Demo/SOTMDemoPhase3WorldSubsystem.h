@@ -11,6 +11,7 @@ class UAudioComponent;
 class UEnhancedInputComponent;
 class UInputAction;
 class UInputMappingContext;
+class UParticleSystemComponent;
 class USOTMPlayerStateSubsystem;
 class USOTMUpgradeStationWidget;
 
@@ -66,6 +67,8 @@ private:
 	void FinishActiveSpeedBoost();
 	void FinishCooldown();
 	void RestoreMovementSpeed();
+	void ActivateBoostOwnedParticles();
+	void DeactivateBoostOwnedParticles();
 	void ResetRuntimeAfterDeath();
 	UCharacterMovementComponent* ResolveMovementComponent() const;
 
@@ -120,6 +123,9 @@ private:
 	TWeakObjectPtr<UCharacterMovementComponent> BoostedMovement;
 	float BaseSpeedBeforeBoost = 0.0f;
 	float LastAppliedBoostedSpeed = 0.0f;
+	// Cascade components this Speed Boost transitioned INACTIVE->ACTIVE.
+	// Components already active (e.g. native Shift sprint) are never recorded.
+	TArray<TWeakObjectPtr<UParticleSystemComponent>> BoostOwnedParticles;
 	FTimerHandle InitializeTimer;
 	FTimerHandle ActiveTimer;
 	FTimerHandle CooldownTimer;

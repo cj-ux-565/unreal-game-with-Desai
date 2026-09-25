@@ -20,6 +20,7 @@
 #include "InputMappingContext.h"
 #include "Kismet/GameplayStatics.h"
 #include "Objective/SOTMObjectiveSubsystem.h"
+#include "Particles/ParticleSystemComponent.h"
 #include "Perception/AIPerceptionComponent.h"
 #include "SOTMPlayerBlueprintLibrary.h"
 #include "SOTMPlayerStateSubsystem.h"
@@ -89,6 +90,7 @@ void USOTMDemoPhase3WorldSubsystem::Deinitialize()
 	}
 	CloseUpgradeUI();
 	RestoreMovementSpeed();
+	DeactivateBoostOwnedParticles();
 	UnbindProductionInput();
 	if (PlayerState)
 	{
@@ -662,6 +664,9 @@ bool USOTMDemoPhase3WorldSubsystem::TryActivateSpeedBoost()
 		ActiveBoostAudio = UGameplayStatics::SpawnSound2D(
 			this, Sound, 0.34f, 1.0f, 0.0f, nullptr, false, false);
 	}
+	// Presentation only: light up the existing player P_Rays/lightning burst.
+	// Speed, duration, cooldown, audio and HUD handling above are unchanged.
+	ActivateBoostOwnedParticles();
 	UE_LOG(LogSOTMPhase3, Display, TEXT("Speed Boost ACTIVE base=%.1f boosted=%.1f multiplier=%.2f duration=%.1f"),
 		BaseSpeedBeforeBoost, LastAppliedBoostedSpeed, Settings->SpeedBoostMultiplier,
 		Settings->SpeedBoostDuration);
@@ -676,6 +681,8 @@ void USOTMDemoPhase3WorldSubsystem::FinishActiveSpeedBoost()
 		return;
 	}
 	RestoreMovementSpeed();
+	// Presentation only: switch off exactly the burst components this boost lit.
+	DeactivateBoostOwnedParticles();
 	if (ActiveBoostAudio)
 	{
 		ActiveBoostAudio->FadeOut(0.18f, 0.0f);
@@ -757,6 +764,53 @@ void USOTMDemoPhase3WorldSubsystem::RestoreMovementSpeed()
 	LastAppliedBoostedSpeed = 0.0f;
 }
 
+void USOTMDemoPhase3WorldSubsystem::ActivateBoostOwnedParticles()
+{
+	// Never stack records: an activation always starts from a clean slate.
+	DeactivateBoostOwnedParticles();
+	const UWorld* World = GetWorld();
+	const APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+	const APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+	if (!Pawn)
+	{
+		return;
+	}
+	TArray<UParticleSystemComponent*> Components;
+	Pawn->GetComponents<UParticleSystemComponent>(Components);
+	for (UParticleSystemComponent* PSC : Components)
+	{
+		if (!IsValid(PSC) || !PSC->Template)
+		{
+			continue;
+		}
+		const FString TemplateName = PSC->Template->GetName();
+		if (!TemplateName.Contains(TEXT("P_Rays")) && !TemplateName.Contains(TEXT("LightningTrail")))
+		{
+			continue;
+		}
+		// Sprint protection: components already emitting (e.g. native Shift
+		// sprint) are left alone and never recorded as boost-owned.
+		if (PSC->IsActive())
+		{
+			continue;
+		}
+		PSC->ActivateSystem();
+		BoostOwnedParticles.Add(PSC);
+	}
+}
+
+void USOTMDemoPhase3WorldSubsystem::DeactivateBoostOwnedParticles()
+{
+	for (TWeakObjectPtr<UParticleSystemComponent>& WeakPSC : BoostOwnedParticles)
+	{
+		if (UParticleSystemComponent* PSC = WeakPSC.Get())
+		{
+			PSC->DeactivateSystem();
+		}
+	}
+	BoostOwnedParticles.Reset();
+}
+
 void USOTMDemoPhase3WorldSubsystem::ResetRuntimeAfterDeath()
 {
 	CloseUpgradeUI();
@@ -767,6 +821,9 @@ void USOTMDemoPhase3WorldSubsystem::ResetRuntimeAfterDeath()
 		World->GetTimerManager().ClearTimer(PresentationTimer);
 	}
 	RestoreMovementSpeed();
+	// A mid-boost death skips FinishActiveSpeedBoost (timer cleared), so release
+	// any boost-owned burst here too. Sprint-owned components were never recorded.
+	DeactivateBoostOwnedParticles();
 	SetRuntimeState(PlayerState && PlayerState->IsSpeedBoostUnlocked()
 		? ESOTMSpeedBoostRuntimeState::Ready
 		: ESOTMSpeedBoostRuntimeState::Locked);

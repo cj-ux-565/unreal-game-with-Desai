@@ -6,6 +6,9 @@
 #include "Components/CanvasPanelSlot.h"
 #include "Components/HorizontalBox.h"
 #include "Components/HorizontalBoxSlot.h"
+#include "Components/Image.h"
+#include "Components/Overlay.h"
+#include "Components/OverlaySlot.h"
 #include "Components/ProgressBar.h"
 #include "Components/SizeBox.h"
 #include "Components/Spacer.h"
@@ -14,7 +17,9 @@
 #include "Components/VerticalBoxSlot.h"
 #include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
+#include "Engine/Texture2D.h"
 #include "Engine/World.h"
+#include "Styling/SlateBrush.h"
 #include "Demo/SOTMDemoPhase2WorldSubsystem.h"
 #include "Demo/SOTMDemoPhase3WorldSubsystem.h"
 #include "Demo/SOTMDemoPhase4WorldSubsystem.h"
@@ -28,12 +33,29 @@ DEFINE_LOG_CATEGORY_STATIC(LogSOTMHUD, Log, All);
 
 namespace
 {
-	const FLinearColor PanelColor(0.012f, 0.018f, 0.032f, 0.88f);
-	const FLinearColor PrimaryTextColor(0.93f, 0.90f, 0.85f, 1.0f);
-	const FLinearColor MutedTextColor(0.38f, 0.37f, 0.38f, 1.0f);
-	const FLinearColor PurpleAccent(0.66f, 0.30f, 0.75f, 1.0f);
-	const FLinearColor GoldAccent(0.96f, 0.70f, 0.22f, 1.0f);
-	const FLinearColor RedAccent(0.86f, 0.06f, 0.08f, 1.0f);
+	const FLinearColor PanelColor(0.010f, 0.012f, 0.020f, 0.80f);
+	const FLinearColor PrimaryTextColor(0.90f, 0.87f, 0.82f, 1.0f);
+	const FLinearColor MutedTextColor(0.55f, 0.53f, 0.50f, 1.0f);
+	const FLinearColor PurpleAccent(0.52f, 0.32f, 0.60f, 1.0f);
+	const FLinearColor GoldAccent(0.80f, 0.62f, 0.32f, 1.0f);
+	const FLinearColor RedAccent(0.75f, 0.12f, 0.14f, 1.0f);
+	// Horror pass: horizontal blood-red strike-through for completed objectives,
+	// dim completed text, dim locked-future text, readable ready-state lavender.
+	// Strike is intentionally darker/more opaque than the old prototype red.
+	const FLinearColor BloodSlashColor(0.55f, 0.07f, 0.09f, 0.90f);
+	const FLinearColor CompletedTextColor(0.45f, 0.34f, 0.30f, 1.0f);
+	const FLinearColor LockedTextColor(0.32f, 0.30f, 0.29f, 1.0f);
+	const FLinearColor ReadyLavender(0.72f, 0.60f, 0.82f, 1.0f);
+	const FLinearColor PanelEdgeRed(0.38f, 0.05f, 0.07f, 0.90f);
+	// Strong gothic header rule: clearly visible crimson, still restrained.
+	const FLinearColor CrimsonRuleColor(0.60f, 0.075f, 0.095f, 0.95f);
+	// Supernatural accent strip states for the Speed Boost widget.
+	const FLinearColor SpeedReadyGlow(0.58f, 0.36f, 0.68f, 1.0f);
+	const FLinearColor SpeedActiveGlow(0.52f, 0.32f, 0.60f, 1.0f);
+	const FLinearColor SpeedDimGlow(0.16f, 0.11f, 0.20f, 1.0f);
+	// Restrained feedback pulses (no neon/bright prototype colors).
+	const FLinearColor CoinPulseGold(0.85f, 0.66f, 0.34f, 1.0f);
+	const FLinearColor LivesPulseRed(0.78f, 0.13f, 0.15f, 1.0f);
 
 	UTextBlock* CreateText(
 		UWidgetTree* Tree,
@@ -59,6 +81,113 @@ namespace
 		{
 			Slot->SetPadding(Padding);
 			Slot->SetHorizontalAlignment(HAlign_Fill);
+		}
+	}
+
+	// Thin blood-red accent strip (2px) used as a horror panel edge.
+	void AddEdgeStrip(UWidgetTree* Tree, UVerticalBox* Parent, const FMargin& Padding)
+	{
+		USizeBox* Size = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
+		Size->SetHeightOverride(2.0f);
+		UBorder* Strip = Tree->ConstructWidget<UBorder>(UBorder::StaticClass());
+		Strip->SetBrushColor(PanelEdgeRed);
+		Strip->SetPadding(FMargin(0.0f));
+		Size->SetContent(Strip);
+		AddVertical(Parent, Size, Padding);
+	}
+
+	// Strong crimson header rule (3px) for hero panels: objective header,
+	// notification divider, boss name divider. Clearly visible, not neon.
+	void AddCrimsonRule(UWidgetTree* Tree, UVerticalBox* Parent, const FMargin& Padding)
+	{
+		USizeBox* Size = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
+		Size->SetHeightOverride(3.0f);
+		UBorder* Strip = Tree->ConstructWidget<UBorder>(UBorder::StaticClass());
+		Strip->SetBrushColor(CrimsonRuleColor);
+		Strip->SetPadding(FMargin(0.0f));
+		Size->SetContent(Strip);
+		AddVertical(Parent, Size, Padding);
+	}
+
+	// Objective list row: text plus a perfectly horizontal blood-red
+	// strike-through shown only for completed objectives, plus an optional small
+	// grungy BloodLines Cross mark as secondary decoration (never the primary).
+	// The strike is Angle 0, ~3px, vertically centered: straight at any resolution.
+	// CrossTex may be null: the row still works with the solid strike bar.
+	FSOTMObjectiveRow CreateSlashRow(
+		UWidgetTree* Tree, const FName Name, const FText& Text,
+		int32 Size, const FLinearColor& Color, float WrapAt, UTexture2D* CrossTex = nullptr)
+	{
+		FSOTMObjectiveRow Row;
+		Row.Root = Tree->ConstructWidget<UOverlay>(UOverlay::StaticClass(), Name);
+		Row.Text = CreateText(Tree, NAME_None, Text, Size, Color);
+		Row.Text->SetAutoWrapText(true);
+		Row.Text->SetWrapTextAt(WrapAt);
+		if (UOverlaySlot* TextSlot = Row.Root->AddChildToOverlay(Row.Text))
+		{
+			TextSlot->SetHorizontalAlignment(HAlign_Fill);
+			TextSlot->SetVerticalAlignment(VAlign_Fill);
+		}
+		USizeBox* SlashSize = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
+		SlashSize->SetHeightOverride(3.0f);
+		UBorder* SlashBar = Tree->ConstructWidget<UBorder>(UBorder::StaticClass());
+		SlashBar->SetBrushColor(BloodSlashColor);
+		SlashBar->SetPadding(FMargin(0.0f));
+		SlashSize->SetContent(SlashBar);
+		// Explicitly no rotation: horizontal strike-through, centered on the text.
+		SlashSize->SetRenderTransform(FWidgetTransform());
+		SlashSize->SetRenderTransformPivot(FVector2D(0.5f, 0.5f));
+		SlashSize->SetVisibility(ESlateVisibility::Collapsed);
+		if (UOverlaySlot* SlashSlot = Row.Root->AddChildToOverlay(SlashSize))
+		{
+			SlashSlot->SetHorizontalAlignment(HAlign_Fill);
+			SlashSlot->SetVerticalAlignment(VAlign_Center);
+		}
+		Row.Slash = SlashSize;
+		Row.CompletionMark = nullptr;
+		if (CrossTex)
+		{
+			USizeBox* MarkSize = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
+			MarkSize->SetWidthOverride(16.0f);
+			MarkSize->SetHeightOverride(16.0f);
+			UImage* MarkImage = Tree->ConstructWidget<UImage>(UImage::StaticClass());
+			FSlateBrush MarkBrush;
+			MarkBrush.SetResourceObject(CrossTex);
+			MarkBrush.DrawAs = ESlateBrushDrawType::Image;
+			MarkBrush.Tiling = ESlateBrushTileType::NoTile;
+			MarkBrush.TintColor = FSlateColor(BloodSlashColor);
+			MarkImage->SetBrush(MarkBrush);
+			MarkImage->SetColorAndOpacity(BloodSlashColor);
+			MarkSize->SetContent(MarkImage);
+			MarkSize->SetVisibility(ESlateVisibility::Collapsed);
+			if (UOverlaySlot* MarkSlot = Row.Root->AddChildToOverlay(MarkSize))
+			{
+				MarkSlot->SetHorizontalAlignment(HAlign_Right);
+				MarkSlot->SetVerticalAlignment(VAlign_Center);
+				MarkSlot->SetPadding(FMargin(0.0f, 0.0f, 2.0f, 0.0f));
+			}
+			Row.CompletionMark = MarkSize;
+		}
+		return Row;
+	}
+
+	void SetSlashRowStyle(FSOTMObjectiveRow& Row, const FText& Text, const FLinearColor& Color, bool bCompleted)
+	{
+		if (Row.Text)
+		{
+			Row.Text->SetText(Text);
+			Row.Text->SetColorAndOpacity(FSlateColor(Color));
+		}
+		const ESlateVisibility CompleteVis = bCompleted
+			? ESlateVisibility::SelfHitTestInvisible
+			: ESlateVisibility::Collapsed;
+		if (Row.Slash)
+		{
+			Row.Slash->SetVisibility(CompleteVis);
+		}
+		if (Row.CompletionMark)
+		{
+			Row.CompletionMark->SetVisibility(CompleteVis);
 		}
 	}
 
@@ -310,12 +439,116 @@ void USOTMIngameUIWidget::NativeDestruct()
 	Super::NativeDestruct();
 }
 
+UTexture2D* USOTMIngameUIWidget::LoadBloodLinesTexture(const TCHAR* ObjectPath)
+{
+	if (ObjectPath == nullptr || ObjectPath[0] == TEXT('\0'))
+	{
+		return nullptr;
+	}
+	// Null-safe soft load: missing/misnamed textures fall back to solid gothic colors.
+	UObject* Loaded = StaticLoadObject(UTexture2D::StaticClass(), nullptr, ObjectPath);
+	return Cast<UTexture2D>(Loaded);
+}
+
+FSlateBrush USOTMIngameUIWidget::MakeBloodFrameBrush(UTexture2D* Tex, const FLinearColor& Tint, float CornerMargin) const
+{
+	FSlateBrush Brush;
+	if (Tex)
+	{
+		Brush.SetResourceObject(Tex);
+		// Box + margin keeps the thin gothic corners from stretching.
+		Brush.DrawAs = ESlateBrushDrawType::Box;
+		Brush.Margin = FMargin(CornerMargin);
+		Brush.Tiling = ESlateBrushTileType::NoTile;
+		Brush.TintColor = FSlateColor(Tint);
+	}
+	return Brush;
+}
+
+void USOTMIngameUIWidget::ApplyBloodPanelBrush(UBorder* Panel, UTexture2D* Tex, const FLinearColor& FallbackColor, float CornerMargin)
+{
+	if (!Panel)
+	{
+		return;
+	}
+	if (Tex)
+	{
+		// White tint preserves the baked BloodLines art (dark grunge + red/grey border).
+		Panel->SetBrush(MakeBloodFrameBrush(Tex, FLinearColor::White, CornerMargin));
+	}
+	else
+	{
+		Panel->SetBrushColor(FallbackColor);
+	}
+}
+
+void USOTMIngameUIWidget::CacheBloodLinesTextures()
+{
+	// BloodLines was a Unity pack: only Texture PNGs were imported. Paths below
+	// match the imported .uasset names (note Input_Field with underscore and
+	// Rectangle without "=" in the cooked asset names).
+	BloodObjectiveFrameTex = LoadBloodLinesTexture(
+		TEXT("/Game/UI/BloodLines/Textures/Textures/Frame/Frame_main_menu_red.Frame_main_menu_red"));
+	BloodNoticeFrameTex = LoadBloodLinesTexture(
+		TEXT("/Game/UI/BloodLines/Textures/Textures/Notice/Frame_notice_v1.Frame_notice_v1"));
+	BloodOutlineRedTex = LoadBloodLinesTexture(
+		TEXT("/Game/UI/BloodLines/Textures/Textures/Frame/Frame_outline_red.Frame_outline_red"));
+	BloodOutlineGreyTex = LoadBloodLinesTexture(
+		TEXT("/Game/UI/BloodLines/Textures/Textures/Frame/Frame_outline_v2.Frame_outline_v2"));
+	BloodInputRedTex = LoadBloodLinesTexture(
+		TEXT("/Game/UI/BloodLines/Textures/Textures/Input_Field/Frame_input_red.Frame_input_red"));
+	BloodSlashCrossTex = LoadBloodLinesTexture(
+		TEXT("/Game/UI/BloodLines/Textures/Textures/Input_Field/Cross.Cross"));
+	BloodBossBackTex = LoadBloodLinesTexture(
+		TEXT("/Game/UI/BloodLines/Textures/Textures/Slider/Rectangle/Progress_Bar_Rectangle_empty_v1.Progress_Bar_Rectangle_empty_v1"));
+	BloodBossFillTex = LoadBloodLinesTexture(
+		TEXT("/Game/UI/BloodLines/Textures/Textures/Slider/Rectangle/Progress_Bar_Rectangle_full_v1.Progress_Bar_Rectangle_full_v1"));
+}
+
+void USOTMIngameUIWidget::StyleBossProgressBarWithBloodLines()
+{
+	if (!BossProgressBar)
+	{
+		return;
+	}
+	// Presentation only: health values/percent logic elsewhere is untouched.
+	// UE 5.6.1: FProgressBarStyle has no FillColorAndOpacity member; fill tint
+	// lives on UProgressBar::FillColorAndOpacity (multiplies FillImage).
+	FProgressBarStyle Style = BossProgressBar->GetWidgetStyle();
+	if (BloodBossBackTex)
+	{
+		FSlateBrush BackBrush;
+		BackBrush.SetResourceObject(BloodBossBackTex);
+		BackBrush.DrawAs = ESlateBrushDrawType::Image;
+		BackBrush.Tiling = ESlateBrushTileType::NoTile;
+		BackBrush.TintColor = FSlateColor(FLinearColor::White);
+		Style.BackgroundImage = BackBrush;
+	}
+	if (BloodBossFillTex)
+	{
+		FSlateBrush FillBrush;
+		FillBrush.SetResourceObject(BloodBossFillTex);
+		FillBrush.DrawAs = ESlateBrushDrawType::Image;
+		FillBrush.Tiling = ESlateBrushTileType::NoTile;
+		// Texture is already blood-red; a light muted multiply keeps it ominous but restrained.
+		FillBrush.TintColor = FSlateColor(FLinearColor(0.72f, 0.62f, 0.62f, 1.0f));
+		Style.FillImage = FillBrush;
+		BossProgressBar->SetWidgetStyle(Style);
+		BossProgressBar->SetFillColorAndOpacity(FLinearColor(0.48f, 0.07f, 0.09f, 1.0f));
+		return;
+	}
+	BossProgressBar->SetWidgetStyle(Style);
+	BossProgressBar->SetFillColorAndOpacity(FLinearColor(0.42f, 0.07f, 0.09f, 1.0f));
+}
+
 void USOTMIngameUIWidget::EnsureProductionHUD()
 {
 	if (ObjectivePanel || !WidgetTree)
 	{
 		return;
 	}
+
+	CacheBloodLinesTextures();
 
 	UCanvasPanel* RootCanvas = Cast<UCanvasPanel>(WidgetTree->RootWidget);
 	if (!RootCanvas)
@@ -325,42 +558,46 @@ void USOTMIngameUIWidget::EnsureProductionHUD()
 	}
 
 	ObjectivePanel = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("SOTM_ObjectivePanel"));
-	ObjectivePanel->SetBrushColor(FLinearColor(0.008f, 0.009f, 0.012f, 0.91f));
-	ObjectivePanel->SetPadding(FMargin(22.0f, 18.0f));
+	ObjectivePanel->SetBrushColor(FLinearColor(0.006f, 0.006f, 0.010f, 0.88f));
+	ObjectivePanel->SetPadding(FMargin(18.0f, 14.0f));
+	// Gothic integration: baked dark-grunge + thin blood-red border. 9-slice-ish
+	// Box margin protects the corner squares from stretching. Falls back to solid.
+	ApplyBloodPanelBrush(ObjectivePanel, BloodObjectiveFrameTex,
+		FLinearColor(0.006f, 0.006f, 0.010f, 0.88f), 0.08f);
 	UVerticalBox* ObjectiveContent = WidgetTree->ConstructWidget<UVerticalBox>(
 		UVerticalBox::StaticClass(), TEXT("SOTM_ObjectiveContent"));
 	ObjectivePanel->SetContent(ObjectiveContent);
 
 	UTextBlock* PanelTitle = CreateText(
 		WidgetTree, TEXT("SOTM_ObjectivePanelTitle"),
-		NSLOCTEXT("SOTM", "Phase2ObjectivesTitle", "OBJECTIVES"), 25, FLinearColor(0.92f, 0.75f, 0.53f, 1.0f));
-	PanelTitle->SetJustification(ETextJustify::Center);
-	AddVertical(ObjectiveContent, PanelTitle, FMargin(0.0f, 0.0f, 0.0f, 16.0f));
+		NSLOCTEXT("SOTM", "Phase2ObjectivesTitle", "OBJECTIVE"), 14, MutedTextColor);
+	PanelTitle->SetJustification(ETextJustify::Left);
+	AddVertical(ObjectiveContent, PanelTitle, FMargin(0.0f, 0.0f, 0.0f, 4.0f));
+	AddCrimsonRule(WidgetTree, ObjectiveContent, FMargin(0.0f, 0.0f, 0.0f, 10.0f));
 
 	CurrentObjectiveSection = WidgetTree->ConstructWidget<UVerticalBox>(
 		UVerticalBox::StaticClass(), TEXT("SOTM_CurrentObjectiveSection"));
-	CurrentObjectiveText = CreateText(
-		WidgetTree, TEXT("SOTM_CurrentObjectiveText"), FText::GetEmpty(), 19, PrimaryTextColor);
-	CurrentObjectiveText->SetAutoWrapText(true);
-	CurrentObjectiveText->SetWrapTextAt(330.0f);
+	FSOTMObjectiveRow CurrentRow = CreateSlashRow(
+		WidgetTree, TEXT("SOTM_CurrentObjectiveRow"), FText::GetEmpty(), 19, PrimaryTextColor, 270.0f, BloodSlashCrossTex);
+	CurrentObjectiveText = CurrentRow.Text;
+	CurrentObjectiveSlash = CurrentRow.Slash;
+	CurrentObjectiveMark = CurrentRow.CompletionMark;
 	ObjectiveProgressText = CreateText(
-		WidgetTree, TEXT("SOTM_ObjectiveProgressText"), FText::GetEmpty(), 18, GoldAccent);
-	ObjectiveProgressText->SetJustification(ETextJustify::Right);
-	AddVertical(CurrentObjectiveSection, CurrentObjectiveText, FMargin(0.0f, 1.0f, 0.0f, 2.0f));
-	AddVertical(CurrentObjectiveSection, ObjectiveProgressText, FMargin(0.0f, 0.0f, 0.0f, 13.0f));
+		WidgetTree, TEXT("SOTM_ObjectiveProgressText"), FText::GetEmpty(), 14, GoldAccent);
+	ObjectiveProgressText->SetJustification(ETextJustify::Left);
+	AddVertical(CurrentObjectiveSection, CurrentRow.Root, FMargin(0.0f, 1.0f, 0.0f, 2.0f));
+	AddVertical(CurrentObjectiveSection, ObjectiveProgressText, FMargin(0.0f, 0.0f, 0.0f, 8.0f));
 	CurrentObjectiveSection->SetVisibility(ESlateVisibility::Collapsed);
 	AddVertical(ObjectiveContent, CurrentObjectiveSection, FMargin(0.0f));
 
-	FutureObjectivesText = CreateText(
-		WidgetTree, TEXT("SOTM_FutureObjectivesText"),
-		NSLOCTEXT("SOTM", "Phase2FutureObjectives", "[LOCKED]  Find the Chest\n\n[LOCKED]  Obtain the Gate Key\n\n[LOCKED]  Reach the Gate"),
-		17, MutedTextColor);
-	FutureObjectivesText->SetLineHeightPercentage(1.0f);
-	AddVertical(ObjectiveContent, FutureObjectivesText, FMargin(0.0f, 0.0f, 0.0f, 15.0f));
+	FutureObjectivesContainer = WidgetTree->ConstructWidget<UVerticalBox>(
+		UVerticalBox::StaticClass(), TEXT("SOTM_FutureObjectives"));
+	FutureObjectivesContainer->SetVisibility(ESlateVisibility::Collapsed);
+	AddVertical(ObjectiveContent, FutureObjectivesContainer, FMargin(0.0f, 0.0f, 0.0f, 8.0f));
 
 	CoinCounterText = CreateText(
-		WidgetTree, TEXT("SOTM_CoinCounterText"), FText::GetEmpty(), 21, GoldAccent);
-	AddVertical(ObjectiveContent, CoinCounterText, FMargin(0.0f, 7.0f, 0.0f, 4.0f));
+		WidgetTree, TEXT("SOTM_CoinCounterText"), FText::GetEmpty(), 14, GoldAccent);
+	AddVertical(ObjectiveContent, CoinCounterText, FMargin(0.0f, 4.0f, 0.0f, 2.0f));
 
 	RequiredCoinsSection = WidgetTree->ConstructWidget<UVerticalBox>(
 		UVerticalBox::StaticClass(), TEXT("SOTM_RequiredCoinsSection"));
@@ -368,7 +605,7 @@ void USOTMIngameUIWidget::EnsureProductionHUD()
 		WidgetTree, TEXT("SOTM_RequiredCoinsHeader"),
 		NSLOCTEXT("SOTM", "RequiredCoinsHeader", "COINS NEEDED"), 12, MutedTextColor);
 	RequiredCoinsText = CreateText(
-		WidgetTree, TEXT("SOTM_RequiredCoinsText"), FText::GetEmpty(), 18, PrimaryTextColor);
+		WidgetTree, TEXT("SOTM_RequiredCoinsText"), FText::GetEmpty(), 14, PrimaryTextColor);
 	AddVertical(RequiredCoinsSection, RequiredHeader, FMargin(0.0f));
 	AddVertical(RequiredCoinsSection, RequiredCoinsText, FMargin(0.0f, 1.0f, 0.0f, 6.0f));
 	RequiredCoinsSection->SetVisibility(ESlateVisibility::Collapsed);
@@ -381,13 +618,13 @@ void USOTMIngameUIWidget::EnsureProductionHUD()
 		NSLOCTEXT("SOTM", "UpgradeProgressHeader", "UPGRADE PROGRESS"), 12, MutedTextColor);
 	USizeBox* UpgradeBarSize = WidgetTree->ConstructWidget<USizeBox>(
 		USizeBox::StaticClass(), TEXT("SOTM_UpgradeBarSize"));
-	UpgradeBarSize->SetHeightOverride(9.0f);
+	UpgradeBarSize->SetHeightOverride(6.0f);
 	UpgradeProgressBar = WidgetTree->ConstructWidget<UProgressBar>(
 		UProgressBar::StaticClass(), TEXT("SOTM_UpgradeProgressBar"));
 	UpgradeProgressBar->SetFillColorAndOpacity(PurpleAccent);
 	UpgradeBarSize->SetContent(UpgradeProgressBar);
 	UpgradeDetailText = CreateText(
-		WidgetTree, TEXT("SOTM_UpgradeDetailText"), FText::GetEmpty(), 14, PrimaryTextColor);
+		WidgetTree, TEXT("SOTM_UpgradeDetailText"), FText::GetEmpty(), 13, PrimaryTextColor);
 	AddVertical(UpgradeSection, UpgradeHeader, FMargin(0.0f));
 	AddVertical(UpgradeSection, UpgradeBarSize, FMargin(0.0f, 3.0f, 0.0f, 2.0f));
 	AddVertical(UpgradeSection, UpgradeDetailText, FMargin(0.0f, 1.0f, 0.0f, 6.0f));
@@ -406,7 +643,7 @@ void USOTMIngameUIWidget::EnsureProductionHUD()
 
 	USizeBox* ObjectiveSize = WidgetTree->ConstructWidget<USizeBox>(
 		USizeBox::StaticClass(), TEXT("SOTM_ObjectivePanelSize"));
-	ObjectiveSize->SetWidthOverride(410.0f);
+	ObjectiveSize->SetWidthOverride(320.0f);
 	ObjectiveSize->SetContent(ObjectivePanel);
 	if (UCanvasPanelSlot* ObjectiveSlot = RootCanvas->AddChildToCanvas(ObjectiveSize))
 	{
@@ -419,10 +656,13 @@ void USOTMIngameUIWidget::EnsureProductionHUD()
 
 	TopRightCoinPanel = WidgetTree->ConstructWidget<UBorder>(
 		UBorder::StaticClass(), TEXT("SOTM_TopRightCoinPanel"));
-	TopRightCoinPanel->SetBrushColor(FLinearColor(0.01f, 0.008f, 0.006f, 0.86f));
-	TopRightCoinPanel->SetPadding(FMargin(18.0f, 8.0f));
+	TopRightCoinPanel->SetBrushColor(FLinearColor(0.008f, 0.007f, 0.010f, 0.72f));
+	TopRightCoinPanel->SetPadding(FMargin(12.0f, 8.0f));
+	// Small gothic frame; coins stay dirty-gold typographic (no coin icon in pack).
+	ApplyBloodPanelBrush(TopRightCoinPanel, BloodOutlineGreyTex,
+		FLinearColor(0.008f, 0.007f, 0.010f, 0.72f), 0.12f);
 	TopRightCoinText = CreateText(
-		WidgetTree, TEXT("SOTM_TopRightCoinText"), FText::GetEmpty(), 26, GoldAccent);
+		WidgetTree, TEXT("SOTM_TopRightCoinText"), FText::GetEmpty(), 15, GoldAccent);
 	TopRightCoinPanel->SetContent(TopRightCoinText);
 	if (UCanvasPanelSlot* CoinSlot = RootCanvas->AddChildToCanvas(TopRightCoinPanel))
 	{
@@ -433,10 +673,19 @@ void USOTMIngameUIWidget::EnsureProductionHUD()
 		CoinSlot->SetZOrder(100);
 	}
 
+	// Numeric lives only (no hearts): bone text on a dark gothic backing with
+	// a restrained crimson pulse on loss. Format "LIVES 5 / 5" is unchanged.
+	LivesPanel = WidgetTree->ConstructWidget<UBorder>(
+		UBorder::StaticClass(), TEXT("SOTM_LivesPanel"));
+	LivesPanel->SetBrushColor(FLinearColor(0.008f, 0.007f, 0.010f, 0.72f));
+	LivesPanel->SetPadding(FMargin(12.0f, 7.0f));
+	ApplyBloodPanelBrush(LivesPanel, BloodOutlineGreyTex,
+		FLinearColor(0.008f, 0.007f, 0.010f, 0.72f), 0.12f);
 	LivesText = CreateText(
-		WidgetTree, TEXT("SOTM_LivesText"), FText::GetEmpty(), 20, PurpleAccent);
+		WidgetTree, TEXT("SOTM_LivesText"), FText::GetEmpty(), 16, PrimaryTextColor);
 	LivesText->SetJustification(ETextJustify::Left);
-	if (UCanvasPanelSlot* LivesSlot = RootCanvas->AddChildToCanvas(LivesText))
+	LivesPanel->SetContent(LivesText);
+	if (UCanvasPanelSlot* LivesSlot = RootCanvas->AddChildToCanvas(LivesPanel))
 	{
 		LivesSlot->SetAnchors(FAnchors(0.0f, 1.0f));
 		LivesSlot->SetAlignment(FVector2D(0.0f, 1.0f));
@@ -447,13 +696,25 @@ void USOTMIngameUIWidget::EnsureProductionHUD()
 
 	SpeedBoostPanel = WidgetTree->ConstructWidget<UBorder>(
 		UBorder::StaticClass(), TEXT("SOTM_SpeedBoostLockedPanel"));
-	SpeedBoostPanel->SetBrushColor(FLinearColor(0.025f, 0.012f, 0.038f, 0.88f));
-	SpeedBoostPanel->SetPadding(FMargin(18.0f, 10.0f));
+	SpeedBoostPanel->SetBrushColor(FLinearColor(0.014f, 0.010f, 0.022f, 0.84f));
+	SpeedBoostPanel->SetPadding(FMargin(16.0f, 12.0f));
+	// Dark BloodLines frame; the purple accent strip below carries the state color.
+	ApplyBloodPanelBrush(SpeedBoostPanel, BloodOutlineGreyTex,
+		FLinearColor(0.014f, 0.010f, 0.022f, 0.84f), 0.12f);
 	UVerticalBox* SpeedContent = WidgetTree->ConstructWidget<UVerticalBox>(
 		UVerticalBox::StaticClass(), TEXT("SOTM_SpeedBoostContent"));
+	USizeBox* SpeedAccentSize = WidgetTree->ConstructWidget<USizeBox>(
+		USizeBox::StaticClass(), TEXT("SOTM_SpeedBoostAccentSize"));
+	SpeedAccentSize->SetHeightOverride(3.0f);
+	SpeedAccentStrip = WidgetTree->ConstructWidget<UBorder>(
+		UBorder::StaticClass(), TEXT("SOTM_SpeedBoostAccent"));
+	SpeedAccentStrip->SetBrushColor(SpeedDimGlow);
+	SpeedAccentStrip->SetPadding(FMargin(0.0f));
+	SpeedAccentSize->SetContent(SpeedAccentStrip);
+	AddVertical(SpeedContent, SpeedAccentSize, FMargin(0.0f, 0.0f, 0.0f, 8.0f));
 	SpeedBoostText = CreateText(
 		WidgetTree, TEXT("SOTM_SpeedBoostStateText"),
-		NSLOCTEXT("SOTM", "SpeedBoostLocked", "SPEED BOOST\nLOCKED"), 17, PurpleAccent);
+		NSLOCTEXT("SOTM", "SpeedBoostLocked", "SPEED BOOST\nLOCKED"), 15, MutedTextColor);
 	SpeedBoostText->SetJustification(ETextJustify::Center);
 	AddVertical(SpeedContent, SpeedBoostText, FMargin(0.0f));
 	USizeBox* SpeedProgressSize = WidgetTree->ConstructWidget<USizeBox>(
@@ -469,23 +730,30 @@ void USOTMIngameUIWidget::EnsureProductionHUD()
 	SpeedBoostPanel->SetContent(SpeedContent);
 	if (UCanvasPanelSlot* SpeedSlot = RootCanvas->AddChildToCanvas(SpeedBoostPanel))
 	{
-		SpeedSlot->SetAnchors(FAnchors(0.5f, 1.0f));
-		SpeedSlot->SetAlignment(FVector2D(0.5f, 1.0f));
-		SpeedSlot->SetPosition(FVector2D(-255.0f, -24.0f));
+		SpeedSlot->SetAnchors(FAnchors(1.0f, 1.0f));
+		SpeedSlot->SetAlignment(FVector2D(1.0f, 1.0f));
+		SpeedSlot->SetPosition(FVector2D(-24.0f, -110.0f));
 		SpeedSlot->SetAutoSize(true);
 		SpeedSlot->SetZOrder(100);
 	}
 
 	StationPromptPanel = WidgetTree->ConstructWidget<UBorder>(
 		UBorder::StaticClass(), TEXT("SOTM_TimmyStationPrompt"));
-	StationPromptPanel->SetBrushColor(FLinearColor(0.015f, 0.006f, 0.022f, 0.94f));
+	StationPromptPanel->SetBrushColor(FLinearColor(0.010f, 0.008f, 0.016f, 0.88f));
 	StationPromptPanel->SetPadding(FMargin(24.0f, 12.0f));
+	// Prominent blood-red input frame around the bone [E] prompt; small and cinematic.
+	ApplyBloodPanelBrush(StationPromptPanel, BloodInputRedTex,
+		FLinearColor(0.010f, 0.008f, 0.016f, 0.88f), 0.10f);
 	UTextBlock* StationPromptText = CreateText(
 		WidgetTree, TEXT("SOTM_TimmyStationPromptText"),
-		NSLOCTEXT("SOTM", "TimmyStationPrompt", "[E]  INTERACT\nUPGRADE ABILITIES"),
-		19, PurpleAccent);
+		NSLOCTEXT("SOTM", "TimmyStationPrompt", "[ E ]  INTERACT\nUPGRADE ABILITIES"),
+		15, PrimaryTextColor);
 	StationPromptText->SetJustification(ETextJustify::Center);
-	StationPromptPanel->SetContent(StationPromptText);
+	UVerticalBox* StationPromptContent = WidgetTree->ConstructWidget<UVerticalBox>(
+		UVerticalBox::StaticClass(), TEXT("SOTM_TimmyStationPromptContent"));
+	AddEdgeStrip(WidgetTree, StationPromptContent, FMargin(0.0f, 0.0f, 0.0f, 6.0f));
+	AddVertical(StationPromptContent, StationPromptText, FMargin(0.0f));
+	StationPromptPanel->SetContent(StationPromptContent);
 	StationPromptPanel->SetVisibility(ESlateVisibility::Collapsed);
 	if (UCanvasPanelSlot* PromptSlot = RootCanvas->AddChildToCanvas(StationPromptPanel))
 	{
@@ -498,11 +766,14 @@ void USOTMIngameUIWidget::EnsureProductionHUD()
 
 	GateKeyPanel = WidgetTree->ConstructWidget<UBorder>(
 		UBorder::StaticClass(), TEXT("SOTM_GateKeyLockedPanel"));
-	GateKeyPanel->SetBrushColor(FLinearColor(0.018f, 0.012f, 0.022f, 0.88f));
-	GateKeyPanel->SetPadding(FMargin(20.0f, 10.0f));
+	GateKeyPanel->SetBrushColor(FLinearColor(0.010f, 0.009f, 0.014f, 0.86f));
+	GateKeyPanel->SetPadding(FMargin(16.0f, 12.0f));
+	// Gothic notice frame so GATE KEY ACQUIRED reads as an important horror beat.
+	ApplyBloodPanelBrush(GateKeyPanel, BloodNoticeFrameTex,
+		FLinearColor(0.010f, 0.009f, 0.014f, 0.86f), 0.06f);
 	GateKeyText = CreateText(
 		WidgetTree, TEXT("SOTM_GateKeyLockedText"),
-		NSLOCTEXT("SOTM", "GateKeyNotAcquired", "GATE KEY\nNOT ACQUIRED"), 17, PurpleAccent);
+		NSLOCTEXT("SOTM", "GateKeyNotAcquired", "GATE KEY\nNOT ACQUIRED"), 13, MutedTextColor);
 	GateKeyText->SetJustification(ETextJustify::Center);
 	GateKeyPanel->SetContent(GateKeyText);
 	if (UCanvasPanelSlot* GateSlot = RootCanvas->AddChildToCanvas(GateKeyPanel))
@@ -516,12 +787,18 @@ void USOTMIngameUIWidget::EnsureProductionHUD()
 
 	Phase4PromptPanel = WidgetTree->ConstructWidget<UBorder>(
 		UBorder::StaticClass(), TEXT("SOTM_Phase4PromptPanel"));
-	Phase4PromptPanel->SetBrushColor(FLinearColor(0.012f, 0.006f, 0.020f, 0.94f));
-	Phase4PromptPanel->SetPadding(FMargin(24.0f, 13.0f));
+	Phase4PromptPanel->SetBrushColor(FLinearColor(0.010f, 0.008f, 0.014f, 0.88f));
+	Phase4PromptPanel->SetPadding(FMargin(24.0f, 12.0f));
+	ApplyBloodPanelBrush(Phase4PromptPanel, BloodInputRedTex,
+		FLinearColor(0.010f, 0.008f, 0.014f, 0.88f), 0.10f);
 	Phase4PromptText = CreateText(
-		WidgetTree, TEXT("SOTM_Phase4PromptText"), FText::GetEmpty(), 20, GoldAccent);
+		WidgetTree, TEXT("SOTM_Phase4PromptText"), FText::GetEmpty(), 15, PrimaryTextColor);
 	Phase4PromptText->SetJustification(ETextJustify::Center);
-	Phase4PromptPanel->SetContent(Phase4PromptText);
+	UVerticalBox* Phase4PromptContent = WidgetTree->ConstructWidget<UVerticalBox>(
+		UVerticalBox::StaticClass(), TEXT("SOTM_Phase4PromptContent"));
+	AddEdgeStrip(WidgetTree, Phase4PromptContent, FMargin(0.0f, 0.0f, 0.0f, 6.0f));
+	AddVertical(Phase4PromptContent, Phase4PromptText, FMargin(0.0f));
+	Phase4PromptPanel->SetContent(Phase4PromptContent);
 	Phase4PromptPanel->SetVisibility(ESlateVisibility::Collapsed);
 	if (UCanvasPanelSlot* PromptSlot = RootCanvas->AddChildToCanvas(Phase4PromptPanel))
 	{
@@ -534,16 +811,20 @@ void USOTMIngameUIWidget::EnsureProductionHUD()
 
 	Phase4NotificationPanel = WidgetTree->ConstructWidget<UBorder>(
 		UBorder::StaticClass(), TEXT("SOTM_Phase4NotificationPanel"));
-	Phase4NotificationPanel->SetBrushColor(FLinearColor(0.055f, 0.012f, 0.09f, 0.95f));
-	Phase4NotificationPanel->SetPadding(FMargin(34.0f, 20.0f));
+	Phase4NotificationPanel->SetBrushColor(FLinearColor(0.012f, 0.010f, 0.020f, 0.90f));
+	Phase4NotificationPanel->SetPadding(FMargin(28.0f, 16.0f));
+	// Prominent gothic modal: dark interior, crimson border, bone text, red divider.
+	ApplyBloodPanelBrush(Phase4NotificationPanel, BloodNoticeFrameTex,
+		FLinearColor(0.012f, 0.010f, 0.020f, 0.90f), 0.06f);
 	UVerticalBox* NotificationContent = WidgetTree->ConstructWidget<UVerticalBox>();
 	Phase4NotificationTitle = CreateText(
-		WidgetTree, TEXT("SOTM_Phase4NotificationTitle"), FText::GetEmpty(), 25, GoldAccent);
+		WidgetTree, TEXT("SOTM_Phase4NotificationTitle"), FText::GetEmpty(), 20, PrimaryTextColor);
 	Phase4NotificationTitle->SetJustification(ETextJustify::Center);
 	Phase4NotificationDetail = CreateText(
-		WidgetTree, TEXT("SOTM_Phase4NotificationDetail"), FText::GetEmpty(), 17, PrimaryTextColor);
+		WidgetTree, TEXT("SOTM_Phase4NotificationDetail"), FText::GetEmpty(), 14, PrimaryTextColor);
 	Phase4NotificationDetail->SetJustification(ETextJustify::Center);
-	AddVertical(NotificationContent, Phase4NotificationTitle, FMargin(0.0f, 0.0f, 0.0f, 7.0f));
+	AddVertical(NotificationContent, Phase4NotificationTitle, FMargin(0.0f, 0.0f, 0.0f, 6.0f));
+	AddCrimsonRule(WidgetTree, NotificationContent, FMargin(0.0f, 0.0f, 0.0f, 8.0f));
 	AddVertical(NotificationContent, Phase4NotificationDetail, FMargin(0.0f));
 	Phase4NotificationPanel->SetContent(NotificationContent);
 	Phase4NotificationPanel->SetVisibility(ESlateVisibility::Collapsed);
@@ -558,12 +839,15 @@ void USOTMIngameUIWidget::EnsureProductionHUD()
 
 	CousinWarningPanel = WidgetTree->ConstructWidget<UBorder>(
 		UBorder::StaticClass(), TEXT("SOTM_CousinWarningPanel"));
-	CousinWarningPanel->SetBrushColor(FLinearColor(0.08f, 0.005f, 0.008f, 0.91f));
-	CousinWarningPanel->SetPadding(FMargin(24.0f, 14.0f));
+	CousinWarningPanel->SetBrushColor(FLinearColor(0.050f, 0.008f, 0.010f, 0.84f));
+	CousinWarningPanel->SetPadding(FMargin(20.0f, 12.0f));
+	// Danger-only red frame; the only panel allowed a full red outline.
+	ApplyBloodPanelBrush(CousinWarningPanel, BloodOutlineRedTex,
+		FLinearColor(0.050f, 0.008f, 0.010f, 0.84f), 0.12f);
 	UTextBlock* WarningText = CreateText(
 		WidgetTree, TEXT("SOTM_CousinWarningText"),
 		NSLOCTEXT("SOTM", "CousinSpotted", "COUSIN SPOTTED!\nHide or run before it catches you!"),
-		21, RedAccent);
+		17, RedAccent);
 	WarningText->SetJustification(ETextJustify::Center);
 	CousinWarningPanel->SetContent(WarningText);
 	CousinWarningPanel->SetVisibility(ESlateVisibility::Collapsed);
@@ -578,22 +862,26 @@ void USOTMIngameUIWidget::EnsureProductionHUD()
 
 	BossPanel = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("SOTM_BossPanel"));
 	BossPanel->SetBrushColor(PanelColor);
-	BossPanel->SetPadding(FMargin(18.0f, 10.0f));
+	BossPanel->SetPadding(FMargin(20.0f, 10.0f));
+	// Ominous but restrained: wide notice bar backing + grungy red/grey bar textures.
+	ApplyBloodPanelBrush(BossPanel, BloodNoticeFrameTex, PanelColor, 0.06f);
 	UVerticalBox* BossContent = WidgetTree->ConstructWidget<UVerticalBox>(
 		UVerticalBox::StaticClass(), TEXT("SOTM_BossContent"));
 	BossPanel->SetContent(BossContent);
 	BossNameText = CreateText(
-		WidgetTree, TEXT("SOTM_BossNameText"), FText::GetEmpty(), 18, PrimaryTextColor);
+		WidgetTree, TEXT("SOTM_BossNameText"), FText::GetEmpty(), 16, PrimaryTextColor);
 	BossNameText->SetJustification(ETextJustify::Center);
 	USizeBox* BossBarSize = WidgetTree->ConstructWidget<USizeBox>(
 		USizeBox::StaticClass(), TEXT("SOTM_BossBarSize"));
-	BossBarSize->SetWidthOverride(500.0f);
-	BossBarSize->SetHeightOverride(12.0f);
+	BossBarSize->SetWidthOverride(480.0f);
+	BossBarSize->SetHeightOverride(10.0f);
 	BossProgressBar = WidgetTree->ConstructWidget<UProgressBar>(
 		UProgressBar::StaticClass(), TEXT("SOTM_BossProgressBar"));
-	BossProgressBar->SetFillColorAndOpacity(FLinearColor(0.50f, 0.08f, 0.68f, 1.0f));
+	BossProgressBar->SetFillColorAndOpacity(FLinearColor(0.42f, 0.07f, 0.09f, 1.0f));
 	BossBarSize->SetContent(BossProgressBar);
-	AddVertical(BossContent, BossNameText, FMargin(0.0f, 0.0f, 0.0f, 5.0f));
+	StyleBossProgressBarWithBloodLines();
+	AddVertical(BossContent, BossNameText, FMargin(0.0f, 0.0f, 0.0f, 6.0f));
+	AddCrimsonRule(WidgetTree, BossContent, FMargin(0.0f, 0.0f, 0.0f, 8.0f));
 	AddVertical(BossContent, BossBarSize, FMargin(0.0f));
 	BossPanel->SetVisibility(ESlateVisibility::Collapsed);
 	if (UCanvasPanelSlot* BossSlot = RootCanvas->AddChildToCanvas(BossPanel))
@@ -631,12 +919,12 @@ void USOTMIngameUIWidget::RefreshCoinCounter(
 	const bool bIncreased = DisplayedAvailableCoins != INDEX_NONE && SafeAvailable > DisplayedAvailableCoins;
 	DisplayedAvailableCoins = SafeAvailable;
 	CoinCounterText->SetText(FText::Format(
-		NSLOCTEXT("SOTM", "CoinCounterFormat", "COINS COLLECTED   {0}"),
+		NSLOCTEXT("SOTM", "CoinCounterFormat", "{0} collected"),
 		FText::AsNumber(SafeLifetime)));
 	if (TopRightCoinText)
 	{
 		TopRightCoinText->SetText(FText::Format(
-			NSLOCTEXT("SOTM", "TopRightCoinCounterFormat", "COINS   {0}"),
+			NSLOCTEXT("SOTM", "TopRightCoinCounterFormat", "◆   {0}"),
 			FText::AsNumber(SafeAvailable)));
 	}
 
@@ -645,11 +933,11 @@ void USOTMIngameUIWidget::RefreshCoinCounter(
 		FWidgetTransform Pulse;
 		Pulse.Scale = FVector2D(1.10f, 1.10f);
 		CoinCounterText->SetRenderTransform(Pulse);
-		CoinCounterText->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.96f, 0.50f, 1.0f)));
+		CoinCounterText->SetColorAndOpacity(FSlateColor(CoinPulseGold));
 		if (TopRightCoinText)
 		{
 			TopRightCoinText->SetRenderTransform(Pulse);
-			TopRightCoinText->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.96f, 0.50f, 1.0f)));
+			TopRightCoinText->SetColorAndOpacity(FSlateColor(CoinPulseGold));
 		}
 		if (UWorld* World = GetWorld())
 		{
@@ -683,7 +971,7 @@ void USOTMIngameUIWidget::RefreshLives(
 		FWidgetTransform Pulse;
 		Pulse.Scale = FVector2D(1.10f, 1.10f);
 		LivesText->SetRenderTransform(Pulse);
-		LivesText->SetColorAndOpacity(FSlateColor(FLinearColor(0.96f, 0.22f, 0.22f, 1.0f)));
+		LivesText->SetColorAndOpacity(FSlateColor(LivesPulseRed));
 		if (UWorld* World = GetWorld())
 		{
 			World->GetTimerManager().ClearTimer(LivesPulseTimerHandle);
@@ -712,7 +1000,7 @@ void USOTMIngameUIWidget::FinishLivesPulse()
 	if (LivesText)
 	{
 		LivesText->SetRenderTransform(FWidgetTransform());
-		LivesText->SetColorAndOpacity(FSlateColor(PurpleAccent));
+		LivesText->SetColorAndOpacity(FSlateColor(PrimaryTextColor));
 	}
 }
 
@@ -759,24 +1047,45 @@ void USOTMIngameUIWidget::RefreshObjectivePresentation(const FSOTMObjectiveData&
 	const FSOTMObjectiveData Active = BoundObjectiveState->GetActiveChapterOneObjective();
 	if (!Active.ObjectiveId.IsNone())
 	{
+		// Horror presentation: no [ACTIVE]/[COMPLETE] labels. State is carried
+		// by style: bone text when active, dark muted text plus a thin
+		// blood-red slash when completed.
 		const bool bCompleted = Active.State == ESOTMObjectiveState::Completed;
-		CurrentObjectiveText->SetText(FText::Format(
-			bCompleted
-				? NSLOCTEXT("SOTM", "ObjectiveCompleteFormat", "[COMPLETE]  {0}")
-				: NSLOCTEXT("SOTM", "ObjectiveActiveFormat", "[ACTIVE]  {0}"),
-			Active.DisplayName));
-		CurrentObjectiveText->SetColorAndOpacity(FSlateColor(bCompleted ? GoldAccent : PrimaryTextColor));
-		ObjectiveProgressText->SetText(Active.ObjectiveId == USOTMObjectiveSubsystem::CollectAllForestCoinsId
-			? FText::Format(NSLOCTEXT("SOTM", "ForestCoinsProgress", "{0} / {1}"),
+		CurrentObjectiveText->SetText(Active.DisplayName);
+		CurrentObjectiveText->SetColorAndOpacity(FSlateColor(bCompleted ? CompletedTextColor : PrimaryTextColor));
+		if (CurrentObjectiveSlash)
+		{
+			CurrentObjectiveSlash->SetVisibility(bCompleted
+				? ESlateVisibility::SelfHitTestInvisible
+				: ESlateVisibility::Collapsed);
+		}
+		if (CurrentObjectiveMark)
+		{
+			CurrentObjectiveMark->SetVisibility(bCompleted
+				? ESlateVisibility::SelfHitTestInvisible
+				: ESlateVisibility::Collapsed);
+		}
+		const bool bIsCoinObjective = Active.ObjectiveId == USOTMObjectiveSubsystem::CollectAllForestCoinsId;
+		if (bIsCoinObjective)
+		{
+			ObjectiveProgressText->SetText(FText::Format(
+				NSLOCTEXT("SOTM", "ForestCoinsProgress", "{0} / {1}"),
 				FText::AsNumber(FMath::Max(0, Active.CurrentProgress)),
-				FText::AsNumber(USOTMObjectiveSubsystem::TotalForestCoins))
-			: (bCompleted ? NSLOCTEXT("SOTM", "ObjectiveCompleteShort", "COMPLETE")
-				: NSLOCTEXT("SOTM", "ObjectiveInProgress", "IN PROGRESS")));
+				FText::AsNumber(USOTMObjectiveSubsystem::TotalForestCoins)));
+			ObjectiveProgressText->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+		}
+		else
+		{
+			// No IN PROGRESS/COMPLETE label: the slash carries completion.
+			ObjectiveProgressText->SetText(FText::GetEmpty());
+			ObjectiveProgressText->SetVisibility(ESlateVisibility::Collapsed);
+		}
 	}
 
-	if (FutureObjectivesText)
+	if (FutureObjectivesContainer)
 	{
-		FString Rows;
+		FutureObjectivesContainer->ClearChildren();
+		bool bHasRows = false;
 		for (const FSOTMObjectiveData& Item : Objectives)
 		{
 			if (Item.ObjectiveId == Active.ObjectiveId ||
@@ -785,12 +1094,20 @@ void USOTMIngameUIWidget::RefreshObjectivePresentation(const FSOTMObjectiveData&
 			{
 				continue;
 			}
-			const TCHAR* Prefix = Item.State == ESOTMObjectiveState::Completed ? TEXT("[DONE]")
-				: (Item.State == ESOTMObjectiveState::Active ? TEXT("[ACTIVE]") : TEXT("[LOCKED]"));
-			Rows += FString::Printf(TEXT("%s  %s\n\n"), Prefix, *Item.DisplayName.ToString());
+			// No [LOCKED]/[DONE] labels: locked rows are dim, completed rows
+			// are muted with a blood-red slash.
+			const bool bRowCompleted = Item.State == ESOTMObjectiveState::Completed;
+			FSOTMObjectiveRow Row = CreateSlashRow(
+				WidgetTree, NAME_None, Item.DisplayName, 12,
+				bRowCompleted ? CompletedTextColor : LockedTextColor, 270.0f, BloodSlashCrossTex);
+			SetSlashRowStyle(Row, Item.DisplayName,
+				bRowCompleted ? CompletedTextColor : LockedTextColor, bRowCompleted);
+			AddVertical(FutureObjectivesContainer, Row.Root, FMargin(0.0f, 0.0f, 0.0f, 5.0f));
+			bHasRows = true;
 		}
-		Rows.RemoveFromEnd(TEXT("\n\n"));
-		FutureObjectivesText->SetText(FText::FromString(Rows));
+		FutureObjectivesContainer->SetVisibility(bHasRows
+			? ESlateVisibility::SelfHitTestInvisible
+			: ESlateVisibility::Collapsed);
 	}
 }
 
@@ -907,7 +1224,7 @@ void USOTMIngameUIWidget::HandleSpeedBoostStateChanged(
 	}
 
 	FText StateText;
-	FLinearColor StateColor = PurpleAccent;
+	FLinearColor StateColor = MutedTextColor;
 	bool bShowProgress = false;
 	FNumberFormattingOptions CountdownFormat;
 	CountdownFormat.SetMaximumFractionalDigits(1);
@@ -916,13 +1233,13 @@ void USOTMIngameUIWidget::HandleSpeedBoostStateChanged(
 	{
 	case ESOTMSpeedBoostRuntimeState::Ready:
 		StateText = NSLOCTEXT("SOTM", "SpeedBoostReady", "SPEED BOOST [Q]\nREADY");
-		StateColor = FLinearColor(0.35f, 0.90f, 0.22f, 1.0f);
+		StateColor = ReadyLavender;
 		break;
 	case ESOTMSpeedBoostRuntimeState::Active:
 		StateText = FText::Format(
 			NSLOCTEXT("SOTM", "SpeedBoostActive", "SPEED BOOST\nACTIVE  {0}s"),
 			FText::AsNumber(FMath::Max(0.0f, RemainingSeconds), &CountdownFormat));
-		StateColor = FLinearColor(0.20f, 0.62f, 1.0f, 1.0f);
+		StateColor = PrimaryTextColor;
 		bShowProgress = true;
 		break;
 	case ESOTMSpeedBoostRuntimeState::Cooldown:
@@ -935,15 +1252,29 @@ void USOTMIngameUIWidget::HandleSpeedBoostStateChanged(
 	case ESOTMSpeedBoostRuntimeState::Locked:
 	default:
 		StateText = NSLOCTEXT("SOTM", "SpeedBoostLockedPhase3", "SPEED BOOST\nLOCKED");
-		StateColor = RedAccent;
+		StateColor = MutedTextColor;
 		break;
 	}
 
 	SpeedBoostText->SetText(StateText);
 	SpeedBoostText->SetColorAndOpacity(FSlateColor(StateColor));
 	SpeedBoostPanel->SetBrushColor(State == ESOTMSpeedBoostRuntimeState::Active
-		? FLinearColor(0.08f, 0.015f, 0.14f, 0.94f)
-		: FLinearColor(0.025f, 0.012f, 0.038f, 0.88f));
+		? FLinearColor(0.030f, 0.018f, 0.048f, 0.86f)
+		: FLinearColor(0.014f, 0.010f, 0.022f, 0.80f));
+	// Subtle purple glow ONLY when READY; dim in every other state.
+	if (SpeedAccentStrip)
+	{
+		FLinearColor Accent = SpeedDimGlow;
+		if (State == ESOTMSpeedBoostRuntimeState::Ready)
+		{
+			Accent = SpeedReadyGlow;
+		}
+		else if (State == ESOTMSpeedBoostRuntimeState::Active)
+		{
+			Accent = SpeedActiveGlow;
+		}
+		SpeedAccentStrip->SetBrushColor(Accent);
+	}
 	SpeedBoostProgressBar->SetPercent(FMath::Clamp(NormalizedRemaining, 0.0f, 1.0f));
 	SpeedBoostProgressBar->SetVisibility(bShowProgress
 		? ESlateVisibility::SelfHitTestInvisible
@@ -957,6 +1288,15 @@ void USOTMIngameUIWidget::SetCurrentObjective(const FText& ObjectiveText)
 		return;
 	}
 	CurrentObjectiveText->SetText(ObjectiveText);
+	CurrentObjectiveText->SetColorAndOpacity(FSlateColor(PrimaryTextColor));
+	if (CurrentObjectiveSlash)
+	{
+		CurrentObjectiveSlash->SetVisibility(ESlateVisibility::Collapsed);
+	}
+	if (CurrentObjectiveMark)
+	{
+		CurrentObjectiveMark->SetVisibility(ESlateVisibility::Collapsed);
+	}
 	CurrentObjectiveSection->SetVisibility(
 		ObjectiveText.IsEmptyOrWhitespace() ? ESlateVisibility::Collapsed : ESlateVisibility::SelfHitTestInvisible);
 }
@@ -1042,33 +1382,34 @@ void USOTMIngameUIWidget::SetMissionTask(
 		return;
 	}
 
-	UTextBlock* Row = MissionTaskRows.FindRef(TaskId);
-	if (!Row)
+	FSOTMObjectiveRow* Existing = MissionTaskRows.Find(TaskId);
+	if (!Existing || !Existing->Root)
 	{
-		Row = CreateText(WidgetTree, NAME_None, FText::GetEmpty(), 15, PrimaryTextColor);
-		Row->SetAutoWrapText(true);
-		Row->SetWrapTextAt(335.0f);
-		AddVertical(MissionTasksContainer, Row, FMargin(0.0f, 1.0f));
+		FSOTMObjectiveRow Row = CreateSlashRow(
+			WidgetTree, NAME_None, FText::GetEmpty(), 13, PrimaryTextColor, 270.0f, BloodSlashCrossTex);
+		AddVertical(MissionTasksContainer, Row.Root, FMargin(0.0f, 1.0f));
 		MissionTaskRows.Add(TaskId, Row);
+		Existing = MissionTaskRows.Find(TaskId);
+	}
+	if (!Existing)
+	{
+		return;
 	}
 
-	Row->SetText(FText::Format(
-		bCompleted
-			? NSLOCTEXT("SOTM", "CompletedTaskFormat", "[DONE]  {0}")
-			: NSLOCTEXT("SOTM", "ActiveTaskFormat", "-  {0}"),
-		TaskText));
-	Row->SetColorAndOpacity(FSlateColor(bCompleted ? MutedTextColor : PrimaryTextColor));
+	// No [DONE]/- labels: completed rows dim with a blood-red slash.
+	SetSlashRowStyle(*Existing, TaskText,
+		bCompleted ? CompletedTextColor : PrimaryTextColor, bCompleted);
 	MissionTasksHeader->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 	MissionTasksContainer->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 }
 
 void USOTMIngameUIWidget::RemoveMissionTask(const FName TaskId)
 {
-	if (TObjectPtr<UTextBlock>* Row = MissionTaskRows.Find(TaskId))
+	if (FSOTMObjectiveRow* Row = MissionTaskRows.Find(TaskId))
 	{
-		if (MissionTasksContainer && Row->Get())
+		if (MissionTasksContainer && Row->Root)
 		{
-			MissionTasksContainer->RemoveChild(Row->Get());
+			MissionTasksContainer->RemoveChild(Row->Root);
 		}
 		MissionTaskRows.Remove(TaskId);
 	}

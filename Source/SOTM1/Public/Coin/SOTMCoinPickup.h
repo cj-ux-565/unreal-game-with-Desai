@@ -22,6 +22,7 @@ public:
 
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	virtual void Tick(float DeltaSeconds) override;
 	virtual void NotifyActorBeginOverlap(AActor* OtherActor) override;
 
 	UFUNCTION(BlueprintPure, Category="SOTM|Coin")
@@ -39,6 +40,10 @@ protected:
 	/** Assigned once to placed production instances by the CH1 Editor migration. */
 	UPROPERTY(EditInstanceOnly, BlueprintReadOnly, Category="SOTM|Coin", SaveGame)
 	FGuid PersistentCoinId;
+
+	/** Visual-only spin so pickups read at a glance in the dark forest. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="SOTM|Coin", meta=(ClampMin="0.0"))
+	float SpinDegreesPerSecond = 120.0f;
 
 private:
 	UFUNCTION()

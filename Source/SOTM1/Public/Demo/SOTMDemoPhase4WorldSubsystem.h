@@ -6,6 +6,8 @@
 #include "SOTMDemoPhase4WorldSubsystem.generated.h"
 
 class AStaticMeshActor;
+class ACameraActor;
+class APostProcessVolume;
 class ASOTMPhase4Interactable;
 class UEnhancedInputComponent;
 class UInputAction;
@@ -64,6 +66,13 @@ private:
 	void UpdateGatePresentation();
 	void FinishGatePresentation();
 	void ActivateIsabelEncounter();
+	void BeginIsabelRevealPresentation(AActor* IsabelActor, AActor* PlayerActor);
+	void PanIsabelRevealToPlayerView();
+	void RestoreIsabelRevealViewTarget();
+	void ApplyIsabelFightVignette(float Delta);
+	void RestoreIsabelFightVignette();
+	void FinishIsabelRevealPresentation();
+	void AbortIsabelRevealPresentation(const TCHAR* Reason, bool bRestoreVignette = true);
 	void ShowDemoComplete();
 	UFUNCTION()
 	void HideDemoComplete();
@@ -124,4 +133,19 @@ public:
 	FTimerHandle ChestAnimationTimer;
 	FTimerHandle GateAnimationTimer;
 	FTimerHandle DemoCompleteTimer;
+
+	// Short Isabel reveal: transient eye-level camera, no pawn movement, no Sequencer.
+	TWeakObjectPtr<ACameraActor> IsabelRevealCamera;
+	TWeakObjectPtr<ACameraActor> IsabelRevealPlayerCamera;
+	FTimerHandle IsabelRevealHoldTimer;
+	FTimerHandle IsabelRevealPanTimer;
+	FTimerHandle IsabelRevealRestoreTimer;
+	bool bIsabelRevealActive = false;
+	bool bIsabelRevealLockHeld = false;
+
+	// Temporary boss-fight vignette on the existing CH1 PostProcessVolume_1.
+	// Original value is cached, never hardcoded; only vignette is touched.
+	TWeakObjectPtr<APostProcessVolume> IsabelFightVolume;
+	float IsabelFightBaseVignette = -1.0f;
+	bool bIsabelFightVignetteApplied = false;
 };

@@ -8,6 +8,7 @@
 
 class ASOTMIsabelPatrolPoint;
 class ACameraActor;
+class UDamageType;
 class UAIPerceptionComponent;
 class UAISenseConfig_Hearing;
 class UAISenseConfig_Sight;
@@ -165,7 +166,7 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="SOTM|Isabel|Jump Scare", meta=(ClampMin="1.0")) float JumpScareCameraTrackingSpeed = 12.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="SOTM|Isabel|Jump Scare") TSoftObjectPtr<UAnimMontage> JumpScareMontage;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="SOTM|Isabel|Jump Scare") TSoftObjectPtr<USoundBase> JumpScareSound;
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="SOTM|Isabel|Debug") bool bDrawDevelopmentDebug = true;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="SOTM|Isabel|Debug") bool bDrawDevelopmentDebug = false;
 
 	// Health properties - instance editable for the final boss
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="SOTM|Isabel|Health", meta=(ClampMin="1.0"))
@@ -181,12 +182,17 @@ protected:
 private:
 	UFUNCTION() void HandleTargetPerceptionUpdated(AActor* Actor, FAIStimulus Stimulus);
 	UFUNCTION() void HandleMoveCompleted(FAIRequestID RequestID, EPathFollowingResult::Type Result);
+	UFUNCTION() void HandlePawnAnyDamage(AActor* DamagedActor, float Damage, const UDamageType* DamageType, AController* InstigatedBy, AActor* DamageCauser);
+	void BindPawnDamageForwarding(APawn* TargetPawn);
+	void UnbindPawnDamageForwarding();
 
 	void RefreshPerceptionSettings();
 	void RegisterPlayerAsPerceptionSource();
 	void DiscoverPatrolRoute();
 	void EvaluateState();
 	void SetState(ESOTMIsabelAIState NewState, const TCHAR* Reason);
+	bool IsDedicatedIsabelBossPawn(const APawn* Pawn) const;
+	void SetDedicatedBossStageHidden(bool bHidden);
 	void EnterPatrol();
 	void MoveToCurrentPatrolPoint();
 	void AdvancePatrolPoint();
@@ -233,6 +239,7 @@ private:
 
 	UPROPERTY(Transient) ESOTMIsabelAIState CurrentState = ESOTMIsabelAIState::Idle;
 	UPROPERTY(Transient) TWeakObjectPtr<AActor> CurrentTarget;
+	UPROPERTY(Transient) TWeakObjectPtr<APawn> DamageForwardPawn;
 	UPROPERTY(Transient) TArray<TWeakObjectPtr<ASOTMIsabelPatrolPoint>> PatrolPoints;
 
 	FVector LastKnownPlayerLocation = FVector::ZeroVector;

@@ -2,15 +2,20 @@
 
 #include "AI/SOTMIsabelAIController.h"
 #include "BrainComponent.h"
+#include "Camera/CameraActor.h"
+#include "Camera/PlayerCameraManager.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "AI/SOTMCousinCharacter.h"
 #include "Demo/SOTMDemoPhase2WorldSubsystem.h"
 #include "Demo/SOTMPhase4Interactable.h"
 #include "EnhancedInputComponent.h"
 #include "Engine/GameInstance.h"
 #include "Engine/StaticMeshActor.h"
+#include "Engine/PostProcessVolume.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "GameFramework/Character.h"
 #include "GameFramework/PlayerController.h"
 #include "InputAction.h"
 #include "Kismet/GameplayStatics.h"
@@ -73,6 +78,7 @@ void USOTMDemoPhase4WorldSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 void USOTMDemoPhase4WorldSubsystem::Deinitialize()
 {
 	HideDemoComplete();
+	AbortIsabelRevealPresentation(TEXT("world teardown"));
 	UnbindProductionInput();
 	if (PlayerState)
 	{
@@ -706,8 +712,258 @@ void USOTMDemoPhase4WorldSubsystem::ActivateIsabelEncounter()
 		Brain->StartLogic();
 	}
 
+	// Presentation-only: short eye-level look at Isabel. Gameplay order above is
+	// unchanged; if the reveal cannot start it only logs and chase continues.
+	if (APlayerController* RevealPC = World->GetFirstPlayerController())
+	{
+		BeginIsabelRevealPresentation(IsabelActor, RevealPC->GetPawn());
+	}
+
 	UE_LOG(LogSOTMPhase4, Display, TEXT("Isabel encounter activated successfully!"));
 	UE_LOG(LogSOTMPhase4, Display, TEXT("=== ActivateIsabelEncounter END ==="));
+}
+
+void USOTMDemoPhase4WorldSubsystem::ApplyIsabelFightVignette(float Delta)
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+	APostProcessVolume* Volume = IsabelFightVolume.Get();
+	if (!Volume)
+	{
+		for (TActorIterator<APostProcessVolume> It(World); It; ++It)
+		{
+			if (It->GetActorLabel(false) == TEXT("PostProcessVolume_1"))
+			{
+				Volume = *It;
+				break;
+			}
+		}
+		if (!Volume)
+		{
+			return;
+		}
+		IsabelFightVolume = Volume;
+	}
+	if (IsabelFightBaseVignette < 0.0f)
+	{
+		IsabelFightBaseVignette = Volume->Settings.VignetteIntensity;
+	}
+	Volume->Settings.bOverride_VignetteIntensity = true;
+	Volume->Settings.VignetteIntensity = FMath::Clamp(IsabelFightBaseVignette + Delta, 0.0f, 1.0f);
+	bIsabelFightVignetteApplied = true;
+}
+
+void USOTMDemoPhase4WorldSubsystem::RestoreIsabelFightVignette()
+{
+	if (!bIsabelFightVignetteApplied)
+	{
+		return;
+	}
+	bIsabelFightVignetteApplied = false;
+	if (APostProcessVolume* Volume = IsabelFightVolume.Get())
+	{
+		if (IsabelFightBaseVignette >= 0.0f)
+		{
+			Volume->Settings.VignetteIntensity = IsabelFightBaseVignette;
+		}
+	}
+	IsabelFightVolume = nullptr;
+	IsabelFightBaseVignette = -1.0f;
+}
+
+void USOTMDemoPhase4WorldSubsystem::BeginIsabelRevealPresentation(AActor* IsabelActor, AActor* PlayerActor)
+{
+	UWorld* World = GetWorld();
+	APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+	if (!World || !PC || !PC->PlayerCameraManager || !IsabelActor || !PlayerActor)
+	{
+		UE_LOG(LogSOTMPhase4, Warning, TEXT("Isabel reveal skipped: missing actor or camera manager; chase continues."));
+		return;
+	}
+	if (bIsabelRevealActive)
+	{
+		return;
+	}
+
+	ACharacter* IsabelCharacter = Cast<ACharacter>(IsabelActor);
+	USkeletalMeshComponent* IsabelMesh = IsabelCharacter ? IsabelCharacter->GetMesh() : nullptr;
+	const FVector FocusLocation = (IsabelMesh && IsabelMesh->DoesSocketExist(TEXT("head")))
+		? IsabelMesh->GetSocketLocation(TEXT("head"))
+		: IsabelActor->GetActorLocation() + FVector(0.0f, 0.0f, 88.0f);
+
+	// Eye-level camera: stays exactly at the player's current viewpoint, only turns
+	// toward Isabel. Pawn location untouched; pawn yaw faces Isabel (set below).
+	// No control-rotation change, no FOV/post edits.
+	const FVector EyeLocation = PC->PlayerCameraManager->GetCameraLocation();
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.ObjectFlags |= RF_Transient;
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	ACameraActor* RevealCamera = World->SpawnActor<ACameraActor>(
+		ACameraActor::StaticClass(), EyeLocation, (FocusLocation - EyeLocation).Rotation(), SpawnParams);
+	if (!RevealCamera)
+	{
+		UE_LOG(LogSOTMPhase4, Warning, TEXT("Isabel reveal skipped: camera spawn failed; chase continues."));
+		return;
+	}
+
+	IsabelRevealCamera = RevealCamera;
+	IsabelRevealPlayerCamera = nullptr;
+	bIsabelRevealActive = true;
+	// Boss-fight vignette: subtle reveal emphasis on the existing global volume.
+	// Skipped silently if the volume cannot be found; HUD flow is unaffected.
+	ApplyIsabelFightVignette(0.10f);
+	if (PlayerState)
+	{
+		PlayerState->AcquireInputLock(ESOTMInputLockReason::Cinematic);
+		bIsabelRevealLockHeld = true;
+	}
+	// Face the player pawn toward Isabel now, while the view is blending away:
+	// yaw-only, location untouched, using the existing pawn-rotation precedent.
+	if (APawn* PlayerPawn = PC->GetPawn())
+	{
+		const FVector PlayerToIsabel = FocusLocation - PlayerPawn->GetActorLocation();
+		if (!PlayerToIsabel.IsNearlyZero())
+		{
+			PlayerPawn->SetActorRotation(FRotator(0.0f, PlayerToIsabel.Rotation().Yaw, 0.0f));
+		}
+	}
+	PC->SetViewTargetWithBlend(RevealCamera, 0.5f, EViewTargetBlendFunction::VTBlend_Cubic, 2.0f, false);
+	// 0.5s blend-in + ~0.8s Isabel beat, then pan to the gameplay framing.
+	World->GetTimerManager().SetTimer(
+		IsabelRevealHoldTimer, this, &ThisClass::PanIsabelRevealToPlayerView, 1.3f, false);
+	UE_LOG(LogSOTMPhase4, Display, TEXT("Isabel reveal presentation started."));
+}
+
+void USOTMDemoPhase4WorldSubsystem::PanIsabelRevealToPlayerView()
+{
+	UWorld* World = GetWorld();
+	APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+	APawn* PlayerPawn = PC ? PC->GetPawn() : nullptr;
+	ACameraActor* RevealCamera = IsabelRevealCamera.Get();
+	if (!World || !PC || !PlayerPawn || !RevealCamera)
+	{
+		RestoreIsabelRevealViewTarget();
+		return;
+	}
+
+	// Gameplay-oriented framing from the player's own baseline: behind the player,
+	// above eye height, looking toward Isabel. Reuses the transient-camera pattern;
+	// blending between the two transient cameras produces the pan.
+	AActor* IsabelTarget = nullptr;
+	for (TActorIterator<ACharacter> It(World); It; ++It)
+	{
+		if (It->GetActorLabel(false) == TEXT("IsabelBoss"))
+		{
+			IsabelTarget = *It;
+			break;
+		}
+	}
+	if (!IsabelTarget)
+	{
+		RestoreIsabelRevealViewTarget();
+		return;
+	}
+	const FVector PlayerLocation = PlayerPawn->GetActorLocation();
+	FVector TowardIsabel = IsabelTarget->GetActorLocation() - PlayerLocation;
+	TowardIsabel.Z = 0.0f;
+	if (TowardIsabel.IsNearlyZero())
+	{
+		RestoreIsabelRevealViewTarget();
+		return;
+	}
+	TowardIsabel.Normalize();
+	const FVector PanLocation = PlayerLocation - TowardIsabel * 220.0f + FVector(0.0f, 0.0f, 120.0f);
+	const FVector PanFocus = IsabelTarget->GetActorLocation() + FVector(0.0f, 0.0f, 88.0f);
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.ObjectFlags |= RF_Transient;
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	ACameraActor* PanCamera = World->SpawnActor<ACameraActor>(
+		ACameraActor::StaticClass(), PanLocation, (PanFocus - PanLocation).Rotation(), SpawnParams);
+	if (!PanCamera)
+	{
+		RestoreIsabelRevealViewTarget();
+		return;
+	}
+	IsabelRevealPlayerCamera = PanCamera;
+	PC->SetViewTargetWithBlend(PanCamera, 1.0f, EViewTargetBlendFunction::VTBlend_Cubic, 2.0f, false);
+	World->GetTimerManager().SetTimer(
+		IsabelRevealPanTimer, this, &ThisClass::RestoreIsabelRevealViewTarget, 1.0f, false);
+}
+
+void USOTMDemoPhase4WorldSubsystem::RestoreIsabelRevealViewTarget()
+{
+	UWorld* World = GetWorld();
+	APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+	if (PC && PC->GetPawn())
+	{
+		PC->SetViewTargetWithBlend(PC->GetPawn(), 0.5f, EViewTargetBlendFunction::VTBlend_Cubic, 2.0f, false);
+	}
+	// Reveal over: settle to the slightly stronger combat framing for the fight.
+	ApplyIsabelFightVignette(0.07f);
+	if (PlayerState && bIsabelRevealLockHeld)
+	{
+		PlayerState->ReleaseInputLock(ESOTMInputLockReason::Cinematic);
+		bIsabelRevealLockHeld = false;
+	}
+	if (World)
+	{
+		World->GetTimerManager().SetTimer(
+			IsabelRevealRestoreTimer, this, &ThisClass::FinishIsabelRevealPresentation, 0.6f, false);
+	}
+	else
+	{
+		FinishIsabelRevealPresentation();
+	}
+}
+
+void USOTMDemoPhase4WorldSubsystem::FinishIsabelRevealPresentation()
+{
+	if (ACameraActor* RevealCamera = IsabelRevealCamera.Get())
+	{
+		RevealCamera->Destroy();
+	}
+	if (ACameraActor* PanCamera = IsabelRevealPlayerCamera.Get())
+	{
+		PanCamera->Destroy();
+	}
+	IsabelRevealCamera = nullptr;
+	IsabelRevealPlayerCamera = nullptr;
+	bIsabelRevealActive = false;
+	if (PlayerState && bIsabelRevealLockHeld)
+	{
+		PlayerState->ReleaseInputLock(ESOTMInputLockReason::Cinematic);
+		bIsabelRevealLockHeld = false;
+	}
+	UE_LOG(LogSOTMPhase4, Display, TEXT("Isabel reveal presentation finished; player control restored."));
+}
+
+void USOTMDemoPhase4WorldSubsystem::AbortIsabelRevealPresentation(const TCHAR* Reason, bool bRestoreVignette)
+{
+	if (!bIsabelRevealActive && !IsabelRevealCamera.IsValid() && !IsabelRevealPlayerCamera.IsValid() && !bIsabelRevealLockHeld)
+	{
+		// No camera/lock state, but a combat vignette may still be active.
+		if (bRestoreVignette)
+		{
+			RestoreIsabelFightVignette();
+		}
+		return;
+	}
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(IsabelRevealHoldTimer);
+		World->GetTimerManager().ClearTimer(IsabelRevealPanTimer);
+		World->GetTimerManager().ClearTimer(IsabelRevealRestoreTimer);
+	}
+	RestoreIsabelRevealViewTarget();
+	FinishIsabelRevealPresentation();
+	if (bRestoreVignette)
+	{
+		RestoreIsabelFightVignette();
+	}
+	UE_LOG(LogSOTMPhase4, Display, TEXT("Isabel reveal aborted safely: %s"), Reason);
 }
 
 void USOTMDemoPhase4WorldSubsystem::ShowDemoComplete()
@@ -756,6 +1012,8 @@ void USOTMDemoPhase4WorldSubsystem::HideDemoComplete()
 void USOTMDemoPhase4WorldSubsystem::HandlePlayerUnavailable(AActor* PlayerActor)
 {
 	(void)PlayerActor;
+	// Combat vignette survives death/respawn: the Isabel encounter is still active.
+	AbortIsabelRevealPresentation(TEXT("player unavailable"), false);
 	bNearChest = false;
 	bNearGate = false;
 	OnPromptChanged.Broadcast(false, FText::GetEmpty());
@@ -764,6 +1022,7 @@ void USOTMDemoPhase4WorldSubsystem::HandlePlayerUnavailable(AActor* PlayerActor)
 void USOTMDemoPhase4WorldSubsystem::HandlePlayerRespawned(AActor* PlayerActor)
 {
 	(void)PlayerActor;
+	AbortIsabelRevealPresentation(TEXT("player respawned"), false);
 	RefreshPrompt();
 }
 
@@ -779,6 +1038,9 @@ void USOTMDemoPhase4WorldSubsystem::OnIsabelDefeated()
 			return;
 		}
 	}
+	// Defeat flow preserved: restore the temporary boss-fight vignette before
+	// the Demo Complete screen, which has its own presentation.
+	RestoreIsabelFightVignette();
 	ShowDemoComplete();
 }
 

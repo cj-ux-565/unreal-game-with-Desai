@@ -53,6 +53,11 @@ private:
 	void PlayOccasionalCousinWhisper();
 	void PlayTemporaryCousinVoice(const TCHAR* SoundPath, const FText& Line,
 		const FVector& Location, float Volume);
+	void FindTeddyDialogueActor();
+	void CheckTeddyProximity();
+	void PlayTemporaryTeddyVoice();
+	void CreateTeddySubtitleOverlay();
+	void RemoveTeddySubtitleOverlay();
 	void CreateCousinSubtitleOverlay();
 	void RemoveCousinSubtitleOverlay();
 	void SuspendAllCousins();
@@ -88,6 +93,9 @@ private:
 	UFUNCTION()
 	void HandleTemporaryCousinVoiceFinished();
 
+	UFUNCTION()
+	void HandleTemporaryTeddyVoiceFinished();
+
 	UPROPERTY(Transient)
 	TObjectPtr<USOTMPlayerStateSubsystem> PlayerState;
 
@@ -104,6 +112,19 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UAudioComponent> ActiveCousinVoice;
 
+	/** Existing CH1 Teddy #2 (Anim_HorrorBear_Idle4); Teddy #1 is never referenced. */
+	TWeakObjectPtr<AActor> TeddyDialogueActor;
+	/** One-shot per run: Teddy #2 speaks once, then never again. */
+	bool bTeddyDialoguePlayed = false;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UAudioComponent> ActiveTeddyVoice;
+
+	TWeakObjectPtr<UGameViewportClient> TeddySubtitleViewport;
+	TSharedPtr<class SWidget> TeddySubtitleRoot;
+	TSharedPtr<class STextBlock> TeddySubtitleSpeakerText;
+	TSharedPtr<class STextBlock> TeddySubtitleLineText;
+
 	TWeakObjectPtr<UGameViewportClient> CousinSubtitleViewport;
 	TSharedPtr<class SWidget> CousinSubtitleRoot;
 	TSharedPtr<class STextBlock> CousinSubtitleSpeakerText;
@@ -119,6 +140,7 @@ private:
 	FTimerHandle InitializeTimer;
 	FTimerHandle WarningTimer;
 	FTimerHandle CatchImpactTimer;
+	FTimerHandle TeddyProximityTimer;
 	FTimerHandle CatchFinishTimer;
 	FTimerHandle CameraDestroyTimer;
 	FTimerHandle CousinResetTimer;

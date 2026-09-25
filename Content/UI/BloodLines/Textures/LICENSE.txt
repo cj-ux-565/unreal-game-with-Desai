@@ -1,0 +1,73 @@
+Bloodlines — Dark UI
+License Agreement (itch.io edition)
+Version 1.0
+
+Copyright © 2026 xGaida and Shieldomirs. All rights reserved.
+
+This License governs your use of the "Bloodlines — Dark UI" asset pack
+(the "Asset"), including its artwork, textures, sprites, prefabs, scenes,
+animations, scripts, sound effects, and documentation. By downloading or
+using the Asset, you agree to the terms below. If you do not agree, do not
+download or use the Asset.
+
+1. OWNERSHIP
+All original content in the Asset is the property of xGaida and Shieldomirs
+and is protected by copyright. You receive a license to use it under the
+terms below; you do not acquire ownership of the Asset itself.
+
+2. WHAT YOU MAY DO
+Subject to the restrictions in Section 3, you are granted a worldwide,
+non-exclusive, royalty-free license to:
+  a) Use the Asset in an unlimited number of personal and commercial
+     projects, including free and paid games and applications.
+  b) Modify, adapt, and combine the Asset with your own work to fit your
+     projects.
+  c) Distribute and sell your own projects that incorporate the Asset as an
+     integrated part of a larger work (for example, the UI of a game).
+  d) Use the Asset in prototypes, game jams, videos, livestreams, and other
+     digital media.
+No attribution is required, though it is appreciated.
+
+3. WHAT YOU MAY NOT DO
+You may NOT:
+  a) Resell, redistribute, sublicense, rent, lease, or share the Asset
+     files, in whole or in part, as a standalone product or as a stock/
+     resource pack.
+  b) Include the Asset, in whole or in part, in another asset pack, UI kit,
+     template, marketplace product, or any product whose primary value is
+     the redistributed art, prefabs, or source files.
+  c) Make the Asset available for download outside of an integrated project
+     (for example, do not upload the raw files to a public repository or
+     file host where they can be downloaded on their own).
+  d) Claim authorship of the Asset, its artwork, prefabs, source files, or
+     brand, or use the "Bloodlines — Dark UI" name in a way that implies it
+     is your own product.
+The test is simple: ship the Asset working inside your project — do not
+ship the Asset so others can take the Asset.
+
+4. THIRD-PARTY FONTS
+The bundled fonts "Manufacturing Consent" and "MedievalSharp" are NOT owned
+by xGaida or Shieldomirs. They are licensed separately under the SIL Open
+Font License 1.1 (OFL-1.1) and remain governed by that license. The
+restrictions in Section 3 do not limit any rights the OFL grants you in
+those fonts. See the included "Third-Party Notices.txt" and the "OFL.txt"
+file in each font's folder for full terms and attribution. If you
+redistribute the fonts, you must keep their OFL.txt files with them.
+
+5. NO WARRANTY
+The Asset is provided "AS IS", without warranty of any kind, express or
+implied, including but not limited to warranties of merchantability,
+fitness for a particular purpose, and non-infringement. You use the Asset
+at your own risk.
+
+6. LIMITATION OF LIABILITY
+In no event shall xGaida or Shieldomirs be liable for any claim, damages,
+or other liability, whether in an action of contract, tort, or otherwise,
+arising from or in connection with the Asset or its use.
+
+7. TERMINATION
+This License terminates automatically if you breach any of its terms. On
+termination you must stop using and distributing the Asset, except that
+projects already released in good faith may continue to include it.
+
+Contact: alebardium@gmail.com

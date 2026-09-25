@@ -24,6 +24,7 @@
 #include "Misc/Parse.h"
 #include "SOTMPlayerStateSubsystem.h"
 #include "Sound/SoundBase.h"
+#include "Styling/CoreStyle.h"
 #include "TimerManager.h"
 #include "UObject/UnrealType.h"
 #include "Widgets/Layout/SBorder.h"
@@ -516,19 +517,21 @@ void USOTMDemoPhase1WorldSubsystem::CreateSubtitleOverlay()
 		[
 			SNew(SBorder)
 			.BorderBackgroundColor(FLinearColor(0.01f, 0.01f, 0.015f, 0.82f))
-			.Padding(FMargin(28.0f, 16.0f))
+			.Padding(FMargin(36.0f, 24.0f))
 			[
 				SNew(SVerticalBox)
 				+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
 				[
 					SAssignNew(SubtitleSpeakerText, STextBlock)
+					.Font(FCoreStyle::GetDefaultFontStyle("Regular", 32))
 					.ColorAndOpacity(FLinearColor(0.72f, 0.16f, 0.88f, 1.0f))
 				]
-				+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0.0f, 6.0f, 0.0f, 0.0f)
+				+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0.0f, 8.0f, 0.0f, 0.0f)
 				[
 					SAssignNew(SubtitleLineText, STextBlock)
+					.Font(FCoreStyle::GetDefaultFontStyle("Regular", 36))
 					.ColorAndOpacity(FLinearColor::White)
-					.WrapTextAt(900.0f)
+					.WrapTextAt(1150.0f)
 					.Justification(ETextJustify::Center)
 				]
 			]

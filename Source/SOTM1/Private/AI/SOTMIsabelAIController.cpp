@@ -18,8 +18,10 @@
 #include "Components/AudioComponent.h"
 #include "Components/PrimitiveComponent.h"
 #include "Components/ProgressBar.h"
+#include "Components/TextBlock.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/Canvas.h"
+#include "Engine/DamageEvents.h"
 #include "Engine/Engine.h"
 #include "EngineUtils.h"
 #include "GameFramework/Character.h"
@@ -104,10 +106,21 @@ void ASOTMIsabelAIController::SyncIsabelBossHUD(bool bVisible)
 	}
 	if (UWidgetTree* Tree = IsabelBossHUD->WidgetTree)
 	{
+		// Horror presentation only: ominous bone name, muted blood-red fill.
+		// Health values and visibility lifecycle are unchanged.
+		if (UTextBlock* BossName = Tree->FindWidget<UTextBlock>(TEXT("BossNameLabel")))
+		{
+			BossName->SetColorAndOpacity(FSlateColor(FLinearColor(0.90f, 0.87f, 0.82f, 1.0f)));
+		}
 		if (UProgressBar* Fill = Tree->FindWidget<UProgressBar>(TEXT("BossHealthFill")))
 		{
 			const float Max = GetMaxHealth();
 			Fill->SetPercent(Max > 0.0f ? FMath::Clamp(GetCurrentHealth() / Max, 0.0f, 1.0f) : 0.0f);
+			Fill->SetFillColorAndOpacity(FLinearColor(0.48f, 0.07f, 0.09f, 1.0f));
+		}
+		if (UProgressBar* AltFill = Tree->FindWidget<UProgressBar>(TEXT("HealthFill")))
+		{
+			AltFill->SetFillColorAndOpacity(FLinearColor(0.48f, 0.07f, 0.09f, 1.0f));
 		}
 	}
 }
@@ -198,6 +211,18 @@ void ASOTMIsabelAIController::OnPossess(APawn* InPawn)
 	// Dormant until Phase4 activation: no boss HUD exists before the gate opens.
 	SyncIsabelBossHUD(false);
 
+	// Pre-gate concealment: the dedicated Chapter 1 boss pawn is placed in the level
+	// from the start but must stay invisible until Phase4 gate activation. AI dormancy
+	// is already enforced by the bIsFinalIsabel perception guard; this only hides the
+	// placed pawn and removes its collision so the player can neither see her nor
+	// trigger any premature encounter. Generic Isabel pawns are never affected.
+	// (The Phase4 spawn path sets bIsFinalIsabel BEFORE Possess, so it stays visible.)
+	if (!bIsFinalIsabel && IsDedicatedIsabelBossPawn(InPawn))
+	{
+		SetDedicatedBossStageHidden(true);
+		StopMovement();
+	}
+
 	UE_LOG(LogSOTMIsabelAI, Display, TEXT("=== OnPossess START for %s ==="), *GetNameSafe(InPawn));
 
 	// CRITICAL: Ensure we have a valid BrainComponent (Blackboard)
@@ -215,6 +240,7 @@ void ASOTMIsabelAIController::OnPossess(APawn* InPawn)
 	RefreshPerceptionSettings();
 	IsabelPerception->OnTargetPerceptionUpdated.AddUniqueDynamic(this, &ThisClass::HandleTargetPerceptionUpdated);
 	ReceiveMoveCompleted.AddUniqueDynamic(this, &ThisClass::HandleMoveCompleted);
+	BindPawnDamageForwarding(InPawn);
 
 	if (UGameInstance* GameInstance = GetWorld() ? GetWorld()->GetGameInstance() : nullptr)
 	{
@@ -249,6 +275,14 @@ void ASOTMIsabelAIController::OnPossess(APawn* InPawn)
 			SetMovementSpeed(ChaseSpeed);
 			SetState(ESOTMIsabelAIState::Chase, TEXT("boss encounter - player acquired"));
 			EvaluateChase();
+
+			// Final-boss combat balance: full health at encounter start, before HUD sync.
+			SetMaxHealth(350.0f);
+
+			// Final boss possessed here (fresh spawn path): show the existing boss
+			// HUD now so it is visible during the fight-start reveal. Same cached
+			// instance; health sync and defeat removal are unchanged.
+			SyncIsabelBossHUD(true);
 			
 			UE_LOG(LogSOTMIsabelAI, Display, TEXT("ISABEL TARGET: %s"), *PlayerActor->GetName());
 			UE_LOG(LogSOTMIsabelAI, Display, TEXT("ISABEL STATE: Chase"));
@@ -266,6 +300,30 @@ void ASOTMIsabelAIController::OnPossess(APawn* InPawn)
 	}
 
 	UE_LOG(LogSOTMIsabelAI, Display, TEXT("=== OnPossess END ==="));
+}
+
+bool ASOTMIsabelAIController::IsDedicatedIsabelBossPawn(const APawn* PawnActor) const
+{
+	if (!PawnActor)
+	{
+		return false;
+	}
+	// Same definition of "the dedicated boss" the Phase4 subsystem uses to find her:
+	// actor label IsabelBoss, or any BP_IsabelAI instance. The class-name check also
+	// survives cooked builds, where editor actor labels are unavailable.
+	return PawnActor->GetClass()->GetName().Contains(TEXT("BP_IsabelAI"))
+		|| PawnActor->GetActorLabel(false) == TEXT("IsabelBoss");
+}
+
+void ASOTMIsabelAIController::SetDedicatedBossStageHidden(bool bShouldHide)
+{
+	APawn* ControlledPawn = GetPawn();
+	if (!ControlledPawn)
+	{
+		return;
+	}
+	ControlledPawn->SetActorHiddenInGame(bShouldHide);
+	ControlledPawn->SetActorEnableCollision(!bShouldHide);
 }
 
 void ASOTMIsabelAIController::InitializeBossEncounter(AActor* PlayerTarget)
@@ -322,6 +380,13 @@ void ASOTMIsabelAIController::InitializeBossEncounter(AActor* PlayerTarget)
 	UE_LOG(LogSOTMIsabelAI, Display, TEXT("ISABEL STATE: Chase"));
 	UE_LOG(LogSOTMIsabelAI, Display, TEXT("ISABEL MOVEMENT STARTED"));
 
+	// Phase4 activation: the dedicated boss becomes visible and collidable again,
+	// restoring normal chase/attack interaction with the world.
+	SetDedicatedBossStageHidden(false);
+
+	// Final-boss combat balance: full health at encounter start, before HUD sync.
+	SetMaxHealth(350.0f);
+
 	// Phase4 activation: reveal the screen-space boss health bar with current health.
 	SyncIsabelBossHUD(true);
 
@@ -344,6 +409,7 @@ void ASOTMIsabelAIController::OnUnPossess()
 	}
 	IsabelPerception->OnTargetPerceptionUpdated.RemoveDynamic(this, &ThisClass::HandleTargetPerceptionUpdated);
 	ReceiveMoveCompleted.RemoveDynamic(this, &ThisClass::HandleMoveCompleted);
+	UnbindPawnDamageForwarding();
 	CurrentTarget.Reset();
 	PatrolPoints.Reset();
 	Super::OnUnPossess();
@@ -396,6 +462,10 @@ void ASOTMIsabelAIController::HandleIsabelDefeated()
 	{
 		NotifySubsystemOfDefeat();
 	}
+
+	// Post-defeat presentation only: hide the defeated pawn and remove its
+	// collision. Actor is kept alive; no health/objective/save logic touched.
+	SetDedicatedBossStageHidden(true);
 }
 
 void ASOTMIsabelAIController::NotifySubsystemOfDefeat()
@@ -424,10 +494,54 @@ void ASOTMIsabelAIController::NotifySubsystemOfDefeat()
 	}
 }
 
+void ASOTMIsabelAIController::BindPawnDamageForwarding(APawn* TargetPawn)
+{
+	UnbindPawnDamageForwarding();
+	if (IsValid(TargetPawn))
+	{
+		TargetPawn->OnTakeAnyDamage.AddUniqueDynamic(this, &ThisClass::HandlePawnAnyDamage);
+		DamageForwardPawn = TargetPawn;
+	}
+}
+
+void ASOTMIsabelAIController::UnbindPawnDamageForwarding()
+{
+	if (APawn* TrackedPawn = DamageForwardPawn.Get())
+	{
+		TrackedPawn->OnTakeAnyDamage.RemoveDynamic(this, &ThisClass::HandlePawnAnyDamage);
+	}
+	DamageForwardPawn.Reset();
+}
+
+void ASOTMIsabelAIController::HandlePawnAnyDamage(
+	AActor* DamagedActor, float Damage, const UDamageType* DamageType,
+	AController* InstigatedBy, AActor* DamageCauser)
+{
+	// Bridge only: dedicated final boss, own controlled pawn, real damage.
+	// Health subtraction, HUD sync and defeat stay inside TakeDamage().
+	APawn* ControlledPawn = GetPawn();
+	if (!bIsFinalIsabel || !ControlledPawn || DamagedActor != ControlledPawn)
+	{
+		return;
+	}
+	if (!IsDedicatedIsabelBossPawn(ControlledPawn))
+	{
+		return;
+	}
+	if (Damage <= 0.0f || CurrentHealth <= 0.0f)
+	{
+		return;
+	}
+	FDamageEvent DamageEvent;
+	DamageEvent.DamageTypeClass = DamageType ? DamageType->GetClass() : nullptr;
+	TakeDamage(Damage, DamageEvent, InstigatedBy, DamageCauser);
+}
+
 void ASOTMIsabelAIController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	AbortJumpScare(TEXT("controller ending play"), true);
 	ClearIsabelDeathTransition(false);
+	UnbindPawnDamageForwarding();
 	GetWorldTimerManager().ClearAllTimersForObject(this);
 	Super::EndPlay(EndPlayReason);
 }

@@ -13,6 +13,7 @@
 #include "Coin/SOTMCoinPickup.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/GameInstance.h"
+#include "Engine/SkeletalMesh.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "Engine/GameViewportClient.h"
@@ -77,6 +78,13 @@ namespace SOTMDemoPhase2Private
 		TEXT("RUN RUN RUN!")
 	};
 	constexpr int32 ProductionCousinCount = 8;
+	// Existing CH1 Teddy #2 only (label Anim_HorrorBear_Idle4, near the spawn hub).
+	// Teddy #1 (Anim_HorrorBear_Idle3, deep forest) is never matched and stays ambient.
+	const TCHAR* TeddyDialogueActorLabel = TEXT("Anim_HorrorBear_Idle4");
+	const TCHAR* TeddyMeshPath = TEXT("/Game/HorrorBear/Mesh/SKM_HorrorBear.SKM_HorrorBear");
+	const TCHAR* TeddyChestVoice = TEXT("/Game/Audio/Dialogue/Chapter1/Temporary/VO_TEMP_Timmy_Chest_001.VO_TEMP_Timmy_Chest_001");
+	constexpr float TeddyTriggerRadius = 400.0f;
+	constexpr float TeddyProximityCheckInterval = 0.5f;
 }
 
 bool USOTMDemoPhase2WorldSubsystem::ShouldCreateSubsystem(UObject* Outer) const
@@ -138,6 +146,14 @@ void USOTMDemoPhase2WorldSubsystem::Deinitialize()
 		ActiveCousinVoice = nullptr;
 	}
 	RemoveCousinSubtitleOverlay();
+	if (ActiveTeddyVoice)
+	{
+		ActiveTeddyVoice->OnAudioFinished.RemoveAll(this);
+		ActiveTeddyVoice->Stop();
+		ActiveTeddyVoice = nullptr;
+	}
+	RemoveTeddySubtitleOverlay();
+	TeddyDialogueActor.Reset();
 	RestorePlayerCamera();
 	DestroyCatchCamera();
 	if (Phase2CreatedHUD)
@@ -166,6 +182,7 @@ void USOTMDemoPhase2WorldSubsystem::InitializeForestPhase2()
 		TEXT("Phase 2 Forest initialized: legacy normal enemies disabled=%d production cousins=%d."),
 		CandidateTransforms.Num(), SpawnedCousins.Num());
 	ScheduleNextCousinWhisper();
+	FindTeddyDialogueActor();
 
 #if !UE_BUILD_SHIPPING
 	if (FParse::Param(FCommandLine::Get(), TEXT("SOTMPhase2Persistence")))
@@ -326,18 +343,20 @@ void USOTMDemoPhase2WorldSubsystem::CreateCousinSubtitleOverlay()
 		[
 			SNew(SBorder)
 			.BorderBackgroundColor(FLinearColor(0.01f, 0.01f, 0.015f, 0.82f))
-			.Padding(FMargin(28.0f, 16.0f))
+			.Padding(FMargin(36.0f, 24.0f))
 			[
 				SNew(SVerticalBox)
 				+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
 				[
 					SAssignNew(CousinSubtitleSpeakerText, STextBlock)
+					.Font(FCoreStyle::GetDefaultFontStyle("Regular", 32))
 					.ColorAndOpacity(FLinearColor(0.72f, 0.16f, 0.88f, 1.0f))
 				]
 				+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
-				.Padding(0.0f, 6.0f, 0.0f, 0.0f)
+				.Padding(0.0f, 8.0f, 0.0f, 0.0f)
 				[
 					SAssignNew(CousinSubtitleLineText, STextBlock)
+					.Font(FCoreStyle::GetDefaultFontStyle("Regular", 36))
 					.ColorAndOpacity(FLinearColor::White)
 					.Justification(ETextJustify::Center)
 				]
@@ -360,6 +379,201 @@ void USOTMDemoPhase2WorldSubsystem::RemoveCousinSubtitleOverlay()
 	CousinSubtitleSpeakerText.Reset();
 	CousinSubtitleLineText.Reset();
 	CousinSubtitleViewport.Reset();
+}
+
+void USOTMDemoPhase2WorldSubsystem::FindTeddyDialogueActor()
+{
+	TeddyDialogueActor.Reset();
+	if (UWorld* World = GetWorld())
+	{
+		for (TActorIterator<AActor> It(World); It; ++It)
+		{
+			AActor* Candidate = *It;
+			if (!IsValid(Candidate) ||
+				Candidate->GetActorLabel(false) != SOTMDemoPhase2Private::TeddyDialogueActorLabel)
+			{
+				continue;
+			}
+			// Mesh guard: only the real HorrorBear counts, so a relabeled actor can
+			// never become the dialogue bear. Teddy #1 has a different label and is
+			// never matched here.
+			const USkeletalMeshComponent* Mesh = Candidate->FindComponentByClass<USkeletalMeshComponent>();
+			const USkeletalMesh* MeshAsset = Mesh ? Mesh->GetSkeletalMeshAsset() : nullptr;
+			if (MeshAsset && MeshAsset->GetPathName() == SOTMDemoPhase2Private::TeddyMeshPath)
+			{
+				TeddyDialogueActor = Candidate;
+				break;
+			}
+		}
+	}
+	if (TeddyDialogueActor.IsValid())
+	{
+		UE_LOG(LogSOTMPhase2, Display, TEXT("Teddy dialogue bear found: %s at %s"),
+			*TeddyDialogueActor->GetActorLabel(false),
+			*TeddyDialogueActor->GetActorLocation().ToCompactString());
+		if (UWorld* World = GetWorld())
+		{
+			World->GetTimerManager().SetTimer(
+				TeddyProximityTimer, this, &ThisClass::CheckTeddyProximity,
+				SOTMDemoPhase2Private::TeddyProximityCheckInterval, true);
+		}
+	}
+	else
+	{
+		UE_LOG(LogSOTMPhase2, Warning, TEXT("Teddy dialogue bear (%s) not found; Teddy guidance disabled."),
+			SOTMDemoPhase2Private::TeddyDialogueActorLabel);
+	}
+}
+
+void USOTMDemoPhase2WorldSubsystem::CheckTeddyProximity()
+{
+	// One-shot per run: once Teddy has spoken, the watch ends permanently.
+	if (bTeddyDialoguePlayed || !TeddyDialogueActor.IsValid())
+	{
+		return;
+	}
+	// Early/pre-chest beat only: never hint at the chest after it is opened.
+	if (PlayerState && PlayerState->IsPhase4ChestOpened())
+	{
+		bTeddyDialoguePlayed = true;
+		return;
+	}
+	UWorld* World = GetWorld();
+	APlayerController* PlayerController = World ? World->GetFirstPlayerController() : nullptr;
+	AActor* PlayerActor = PlayerController ? PlayerController->GetPawn() : nullptr;
+	if (!PlayerActor)
+	{
+		return;
+	}
+	const float Distance = FVector::Dist(PlayerActor->GetActorLocation(), TeddyDialogueActor->GetActorLocation());
+	if (Distance <= SOTMDemoPhase2Private::TeddyTriggerRadius)
+	{
+		bTeddyDialoguePlayed = true;
+		if (World)
+		{
+			World->GetTimerManager().ClearTimer(TeddyProximityTimer);
+		}
+		PlayTemporaryTeddyVoice();
+	}
+}
+
+void USOTMDemoPhase2WorldSubsystem::PlayTemporaryTeddyVoice()
+{
+	USoundBase* Voice = LoadObject<USoundBase>(nullptr, SOTMDemoPhase2Private::TeddyChestVoice);
+	if (!Voice)
+	{
+		UE_LOG(LogSOTMPhase2, Error, TEXT("TEMPORARY PLACEHOLDER Teddy VO unavailable: %s"),
+			SOTMDemoPhase2Private::TeddyChestVoice);
+		return;
+	}
+	if (ActiveTeddyVoice)
+	{
+		ActiveTeddyVoice->OnAudioFinished.RemoveAll(this);
+		ActiveTeddyVoice->Stop();
+		ActiveTeddyVoice = nullptr;
+	}
+	RemoveTeddySubtitleOverlay();
+	CreateTeddySubtitleOverlay();
+	if (TeddySubtitleSpeakerText)
+	{
+		TeddySubtitleSpeakerText->SetText(NSLOCTEXT("SOTM", "TeddyName", "TEDDY"));
+	}
+	if (TeddySubtitleLineText)
+	{
+		// Temporary placeholder line: early guidance toward the chest. It must not
+		// imply the chest was opened, moved, or completed.
+		TeddySubtitleLineText->SetText(NSLOCTEXT("SOTM", "TeddyChestHint",
+			"Pssst… an old chest sleeps somewhere in this forest. Go and find it."));
+	}
+	const FVector VoiceLocation = TeddyDialogueActor.IsValid()
+		? TeddyDialogueActor->GetActorLocation() : FVector::ZeroVector;
+	// Teddy guidance must cut through forest ambience: +4 dB voice gain, applied
+	// ONLY to this Teddy call. Cousin whispers and all other VO keep their volumes.
+	// Positional playback (attenuation, location) is unchanged.
+	ActiveTeddyVoice = UGameplayStatics::SpawnSoundAtLocation(
+		this, Voice, VoiceLocation, FRotator::ZeroRotator, 1.6f, 1.0f, 0.0f,
+		nullptr, nullptr, false);
+	if (!ActiveTeddyVoice)
+	{
+		RemoveTeddySubtitleOverlay();
+		return;
+	}
+	ActiveTeddyVoice->OnAudioFinished.AddUniqueDynamic(
+		this, &ThisClass::HandleTemporaryTeddyVoiceFinished);
+	UE_LOG(LogSOTMPhase2, Display,
+		TEXT("TEMPORARY PLACEHOLDER Teddy VO: %s duration=%.2fs"),
+		SOTMDemoPhase2Private::TeddyChestVoice, Voice->GetDuration());
+}
+
+void USOTMDemoPhase2WorldSubsystem::HandleTemporaryTeddyVoiceFinished()
+{
+	if (ActiveTeddyVoice)
+	{
+		ActiveTeddyVoice->OnAudioFinished.RemoveAll(this);
+		ActiveTeddyVoice->DestroyComponent();
+		ActiveTeddyVoice = nullptr;
+	}
+	RemoveTeddySubtitleOverlay();
+}
+
+void USOTMDemoPhase2WorldSubsystem::CreateTeddySubtitleOverlay()
+{
+	if (TeddySubtitleRoot.IsValid())
+	{
+		return;
+	}
+	UWorld* World = GetWorld();
+	UGameViewportClient* Viewport = World && World->GetGameInstance()
+		? World->GetGameInstance()->GetGameViewportClient() : nullptr;
+	if (!Viewport)
+	{
+		return;
+	}
+	TeddySubtitleViewport = Viewport;
+	TSharedRef<SWidget> Content =
+		SNew(SOverlay)
+		+ SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Bottom)
+		.Padding(FMargin(80.0f, 40.0f, 80.0f, 80.0f))
+		[
+			SNew(SBorder)
+			.BorderBackgroundColor(FLinearColor(0.01f, 0.01f, 0.015f, 0.82f))
+			.Padding(FMargin(36.0f, 24.0f))
+			[
+				SNew(SVerticalBox)
+				+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
+				[
+					SAssignNew(TeddySubtitleSpeakerText, STextBlock)
+					.Font(FCoreStyle::GetDefaultFontStyle("Regular", 32))
+					.ColorAndOpacity(FLinearColor(1.0f, 0.80f, 0.40f, 1.0f))
+				]
+				+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
+				.Padding(0.0f, 8.0f, 0.0f, 0.0f)
+				[
+					SAssignNew(TeddySubtitleLineText, STextBlock)
+					.Font(FCoreStyle::GetDefaultFontStyle("Regular", 36))
+					.ColorAndOpacity(FLinearColor::White)
+					.WrapTextAt(1150.0f)
+					.Justification(ETextJustify::Center)
+				]
+			]
+		];
+	TeddySubtitleRoot = Content;
+	Viewport->AddViewportWidgetContent(TeddySubtitleRoot.ToSharedRef(), 950);
+}
+
+void USOTMDemoPhase2WorldSubsystem::RemoveTeddySubtitleOverlay()
+{
+	if (TeddySubtitleRoot.IsValid())
+	{
+		if (UGameViewportClient* Viewport = TeddySubtitleViewport.Get())
+		{
+			Viewport->RemoveViewportWidgetContent(TeddySubtitleRoot.ToSharedRef());
+		}
+	}
+	TeddySubtitleRoot.Reset();
+	TeddySubtitleSpeakerText.Reset();
+	TeddySubtitleLineText.Reset();
+	TeddySubtitleViewport.Reset();
 }
 
 void USOTMDemoPhase2WorldSubsystem::EnsureForestGameplayHUD()
