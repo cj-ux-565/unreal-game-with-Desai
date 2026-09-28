@@ -144,8 +144,9 @@ public:
 	bool bIsabelRevealLockHeld = false;
 
 	// Temporary boss-fight vignette on the existing CH1 PostProcessVolume_1.
-	// Original value is cached, never hardcoded; only vignette is touched.
+	// Original value AND its override flag are cached, never hardcoded; only vignette is touched.
 	TWeakObjectPtr<APostProcessVolume> IsabelFightVolume;
 	float IsabelFightBaseVignette = -1.0f;
+	bool bIsabelFightBaseVignetteOverride = false;
 	bool bIsabelFightVignetteApplied = false;
 };

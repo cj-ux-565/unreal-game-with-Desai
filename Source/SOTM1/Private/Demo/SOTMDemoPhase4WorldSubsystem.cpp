@@ -750,6 +750,7 @@ void USOTMDemoPhase4WorldSubsystem::ApplyIsabelFightVignette(float Delta)
 	if (IsabelFightBaseVignette < 0.0f)
 	{
 		IsabelFightBaseVignette = Volume->Settings.VignetteIntensity;
+		bIsabelFightBaseVignetteOverride = Volume->Settings.bOverride_VignetteIntensity;
 	}
 	Volume->Settings.bOverride_VignetteIntensity = true;
 	Volume->Settings.VignetteIntensity = FMath::Clamp(IsabelFightBaseVignette + Delta, 0.0f, 1.0f);
@@ -768,6 +769,7 @@ void USOTMDemoPhase4WorldSubsystem::RestoreIsabelFightVignette()
 		if (IsabelFightBaseVignette >= 0.0f)
 		{
 			Volume->Settings.VignetteIntensity = IsabelFightBaseVignette;
+			Volume->Settings.bOverride_VignetteIntensity = bIsabelFightBaseVignetteOverride;
 		}
 	}
 	IsabelFightVolume = nullptr;
